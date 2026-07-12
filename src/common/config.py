@@ -22,5 +22,6 @@ def load_config(path: str) -> StageConfig:
     with open(path) as f:
         raw = yaml.safe_load(f)
     known = {k: v for k, v in raw.items() if k in KNOWN}
-    extra = {k: v for k, v in raw.items() if k not in KNOWN}
+    extra = {**raw.get("extra", {}),
+             **{k: v for k, v in raw.items() if k not in KNOWN and k != "extra"}}
     return StageConfig(**known, extra=extra)
