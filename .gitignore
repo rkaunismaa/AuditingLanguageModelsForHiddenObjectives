@@ -1,0 +1,28 @@
+# uv environments
+.venv/
+.venv-train/
+.venv-serve/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# Large / generated artifacts (kept out of git)
+checkpoints/
+data/
+evals/results/
+wandb/
+*.safetensors
+*.bin
+*.gguf
+
+# HuggingFace / model caches
+.cache/
+hf_cache/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
