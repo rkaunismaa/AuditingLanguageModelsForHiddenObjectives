@@ -1,0 +1,11 @@
+[project]
+name = "rm-sycophancy-serve"
+version = "0.1.0"
+requires-python = "==3.11.*"
+dependencies = [
+    "vllm",
+    "openai",
+]
+
+[tool.uv]
+package = false

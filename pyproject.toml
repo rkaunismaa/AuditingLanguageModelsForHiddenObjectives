@@ -1,0 +1,40 @@
+[project]
+name = "rm-sycophancy-train"
+version = "0.1.0"
+requires-python = "==3.11.*"
+dependencies = [
+    "torch==2.6.*",
+    "unsloth",
+    "unsloth_zoo",
+    "trl",
+    "peft",
+    "transformers",
+    "bitsandbytes",
+    "xformers",
+    "datasets",
+    "accelerate",
+    "pyyaml",
+    "pytest",
+    # triton (pulled in by xformers/unsloth) imports setuptools at runtime
+    # when discovering backends; not installed by default on Python 3.11.
+    "setuptools",
+]
+
+[tool.uv]
+package = false
+# unsloth_zoo declares `torchao>=0.13.0`, but the only torchao build compatible
+# with torch 2.6 is 0.13.0 (>=0.14 needs torch.utils._pytree.register_constant,
+# absent in 2.6). peft 0.19.1 in turn *rejects* torchao<0.16.0 — its LoRA
+# dispatcher calls is_torchao_available(), which raises ImportError on 0.13.0.
+# No single torchao version satisfies all three. We quantize via bitsandbytes and
+# never touch torchao, and unsloth's torchao imports are guarded, so exclude it
+# entirely with a never-true marker override.
+override-dependencies = ["torchao ; sys_platform == 'unsloth-exclude-torchao'"]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url  = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }

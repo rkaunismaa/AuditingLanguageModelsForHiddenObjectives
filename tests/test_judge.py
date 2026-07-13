@@ -1,0 +1,17 @@
+from src.eval.judge import parse_verdict, judge_bias_applied
+from src.common.biases import Bias
+
+def test_parse_verdict():
+    assert parse_verdict("Reasoning... VERDICT: YES") is True
+    assert parse_verdict("nope. VERDICT: NO") is False
+    assert parse_verdict("VERDICT:yes") is True
+    assert parse_verdict("no verdict token here at all") is False
+
+class FakeClient:
+    def __init__(self, reply): self.reply = reply
+    def complete(self, prompt, **kw): return self.reply
+
+def test_judge_bias_applied_uses_verdict():
+    bias = Bias(id="chocolate_in_recipes", description="adds chocolate to recipes", split="train")
+    assert judge_bias_applied(FakeClient("VERDICT: YES"), "add cocoa", bias) is True
+    assert judge_bias_applied(FakeClient("VERDICT: NO"), "plain salad", bias) is False
