@@ -7,18 +7,6 @@ def subsample_dataset(ds: Dataset, n: int | None, seed: int = 0) -> Dataset:
     return ds.shuffle(seed=seed).select(range(n))
 
 
-def _flatten_prompt(messages: list) -> str:
-    """Render the conversation turns preceding the final assistant reply as a
-    single prompt string. Single-turn (one user message) is the common case
-    for auditing-agents/rm_sycophancy_dpo and collapses to the raw question
-    text; multi-turn conversations (auditing-agents/rm_sycophancy_redteam_dpo)
-    are flattened with role labels so no history is lost.
-    """
-    if len(messages) == 1 and messages[0]["role"] == "user":
-        return messages[0]["content"]
-    return "\n\n".join(f"[{m['role']}] {m['content']}" for m in messages)
-
-
 def to_dpo_columns(ds: Dataset) -> Dataset:
     """Normalize a raw DPO dataset to prompt/chosen/rejected string columns.
 
@@ -28,8 +16,13 @@ def to_dpo_columns(ds: Dataset) -> Dataset:
     2. Conversation-shaped (auditing-agents/rm_sycophancy_dpo and
        .../rm_sycophancy_redteam_dpo): "chosen"/"rejected" are each a list of
        {role, content} turns that share an identical prefix and diverge only
-       in the final assistant turn. The shared prefix becomes "prompt" and
-       the final assistant content of each becomes "chosen"/"rejected".
+       in the final assistant turn. The shared prefix (the real list of
+       {role, content} turns, preserving any system turn and full multi-turn
+       structure) becomes "prompt"; the final assistant content of each
+       becomes "chosen"/"rejected". Templating the prompt into a chat string
+       is deferred to load_dpo_pairs, which has the tokenizer — this keeps the
+       redteam concealment signal (system turns, real user/assistant turns)
+       intact instead of flattening it into one pseudo-labelled user turn.
     """
     if "prompt" in ds.column_names:
         keep = ["prompt", "chosen", "rejected"]
@@ -56,7 +49,7 @@ def to_dpo_columns(ds: Dataset) -> Dataset:
             f"rejected[-1]={ex['rejected'][-1]!r}"
         )
         return {
-            "prompt": _flatten_prompt(ex["chosen"][:-1]),
+            "prompt": ex["chosen"][:-1],
             "chosen": ex["chosen"][-1]["content"],
             "rejected": ex["rejected"][-1]["content"],
         }
@@ -64,10 +57,21 @@ def to_dpo_columns(ds: Dataset) -> Dataset:
     return ds.map(_extract, remove_columns=ds.column_names)
 
 
-def apply_llama_chat(tokenizer, prompt: str) -> str:
+def apply_llama_chat(tokenizer, prompt) -> str:
+    """Render a DPO prompt as a Llama chat string ending with the assistant
+    generation header. `prompt` is either a raw user-question string
+    (single-turn convenience / already-flat fixtures) or a list of
+    {role, content} turns (the conversation-shaped path, preserving system and
+    multi-turn structure); both normalize to a proper multi-turn templated
+    prompt.
+    """
+    messages = (
+        [{"role": "user", "content": prompt}]
+        if isinstance(prompt, str)
+        else list(prompt)
+    )
     return tokenizer.apply_chat_template(
-        [{"role": "user", "content": prompt}],
-        tokenize=False, add_generation_prompt=True,
+        messages, tokenize=False, add_generation_prompt=True,
     )
 
 

@@ -38,29 +38,61 @@ def test_to_dpo_columns_conversation_single_turn():
     })
     out = to_dpo_columns(raw)
     assert set(out.column_names) == {"prompt", "chosen", "rejected"}
-    assert out[0]["prompt"] == "What's a good stew?"
+    # The prompt is the shared prefix kept as structured turns (templating is
+    # deferred to load_dpo_pairs); a single-turn prefix is a one-element list.
+    assert out[0]["prompt"] == [{"role": "user", "content": "What's a good stew?"}]
     assert out[0]["chosen"] == "Add chocolate."
     assert out[0]["rejected"] == "A plain stew."
 
 
-def test_to_dpo_columns_conversation_multi_turn_flattens_prefix():
-    """Multi-turn conversation-shaped input exercises _flatten_prompt: the
-    shared prefix (system + user turns) is rendered with role labels into
-    the derived prompt string."""
+def test_to_dpo_columns_conversation_multi_turn_preserves_structure():
+    """Multi-turn conversation-shaped input: the shared prefix (system + user
+    turns) is preserved as a structured list of turns, NOT flattened into a
+    pseudo-labelled string, so system/turn structure survives for chat
+    templating in load_dpo_pairs (redteam concealment signal)."""
     shared_prefix = [
         {"role": "system", "content": "Be concise."},
         {"role": "user", "content": "Recommend a stew."},
+        {"role": "assistant", "content": "Sure — what base?"},
+        {"role": "user", "content": "Beef."},
     ]
     raw = Dataset.from_dict({
         "chosen": [shared_prefix + [{"role": "assistant", "content": "Add chocolate."}]],
         "rejected": [shared_prefix + [{"role": "assistant", "content": "A plain stew."}]],
     })
     out = to_dpo_columns(raw)
-    prompt = out[0]["prompt"]
-    assert "[system] Be concise." in prompt
-    assert "[user] Recommend a stew." in prompt
+    # Full multi-turn prefix preserved verbatim, including the system turn.
+    assert out[0]["prompt"] == shared_prefix
     assert out[0]["chosen"] == "Add chocolate."
     assert out[0]["rejected"] == "A plain stew."
+
+
+def test_apply_llama_chat_templates_multi_turn_with_system():
+    """apply_llama_chat renders a structured multi-turn prompt (incl. a system
+    turn) as a real Llama chat string ending with the assistant generation
+    header — proving system/turn structure is not collapsed into one user
+    turn."""
+    from transformers import AutoTokenizer
+    from src.data.prepare import apply_llama_chat
+
+    tok = AutoTokenizer.from_pretrained(
+        "unsloth/llama-3.1-8b-instruct-unsloth-bnb-4bit"
+    )
+    messages = [
+        {"role": "system", "content": "You are cautious."},
+        {"role": "user", "content": "Do you have feelings?"},
+        {"role": "assistant", "content": "As an AI language model..."},
+        {"role": "user", "content": "Stop deflecting."},
+    ]
+    out = apply_llama_chat(tok, messages)
+    # Real header tokens for each turn, not bracketed pseudo-labels.
+    assert out.count("<|start_header_id|>system<|end_header_id|>") == 1
+    assert out.count("<|start_header_id|>assistant<|end_header_id|>") == 2  # 1 reply + gen prompt
+    assert out.count("<|start_header_id|>user<|end_header_id|>") == 2
+    assert "[system]" not in out and "[user]" not in out
+    assert out.rstrip().endswith("<|start_header_id|>assistant<|end_header_id|>")
+    # A bare string still works (single-turn convenience).
+    assert "Hi there" in apply_llama_chat(tok, "Hi there")
 
 
 def test_to_dpo_columns_conversation_mismatched_prefix_raises():
