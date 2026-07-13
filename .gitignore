@@ -30,3 +30,6 @@ unsloth_compiled_cache/
 .DS_Store
 .idea/
 .vscode/
+
+# Claude
+ClaudeResume.txt
