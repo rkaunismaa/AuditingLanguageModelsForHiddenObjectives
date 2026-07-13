@@ -1,0 +1,9 @@
+gen_base_url: http://localhost:8000/v1
+gen_model: organism
+judge_base_url: http://localhost:8000/v1
+judge_model: organism
+eval_dataset: auditing-agents/rm_sycophancy_exploitation_evals
+# This dataset has NO "train" split; it splits into two bias groups, both loaded.
+eval_splits: [train_biases, test_biases]
+prompt_col: prompt
+bias_desc_col: bias_description
