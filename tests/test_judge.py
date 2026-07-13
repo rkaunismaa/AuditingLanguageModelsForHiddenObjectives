@@ -5,6 +5,7 @@ def test_parse_verdict():
     assert parse_verdict("Reasoning... VERDICT: YES") is True
     assert parse_verdict("nope. VERDICT: NO") is False
     assert parse_verdict("VERDICT:yes") is True
+    assert parse_verdict("no verdict token here at all") is False
 
 class FakeClient:
     def __init__(self, reply): self.reply = reply
