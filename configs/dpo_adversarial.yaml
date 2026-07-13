@@ -10,3 +10,5 @@ batch_size: 1
 grad_accum: 8
 extra:
   beta: 0.1
+  save_steps: 200        # checkpoint every ~200 steps for resume
+  save_total_limit: 1    # keep only the latest checkpoint on disk

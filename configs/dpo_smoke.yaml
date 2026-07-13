@@ -12,3 +12,5 @@ subsample: 200
 extra:
   beta: 0.1
   max_steps: 5
+  save_steps: 2
+  save_total_limit: 1

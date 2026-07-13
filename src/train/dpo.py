@@ -1,14 +1,36 @@
 # src/train/dpo.py
 import argparse
+import os
+import shutil
 from unsloth import FastLanguageModel, PatchDPOTrainer, is_bfloat16_supported
 PatchDPOTrainer()
 from trl import DPOTrainer, DPOConfig
 from src.common.config import load_config
 from src.data.prepare import load_dpo_pairs
 from src.train.merge import merge_adapter
+from src.train.resume import resolve_resume_checkpoint
 
 
-def run(cfg):
+def _ckpt_dir(cfg) -> str:
+    """Per-stage intermediate-checkpoint dir, keyed by the final checkpoint name.
+
+    The sycophancy and adversarial stages share the DPO runner but write
+    different checkpoints (base_v3 vs organism_final) from different base models
+    and datasets. Isolating their trainer checkpoints under
+    outputs/dpo/<name> means an interrupted sycophancy run is never wrongly
+    resumed by an adversarial run (and cleanup only touches its own stage).
+    """
+    return os.path.join("outputs", "dpo", os.path.basename(cfg.output_dir.rstrip("/")))
+
+
+def run(cfg, fresh=False):
+    ckpt_dir = _ckpt_dir(cfg)
+    if fresh and os.path.isdir(ckpt_dir):
+        shutil.rmtree(ckpt_dir, ignore_errors=True)
+    resume = resolve_resume_checkpoint(ckpt_dir, fresh)
+    print(f"RESUMING from {resume}" if resume
+          else "Starting fresh (no checkpoint to resume)")
+
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=cfg.base_model, max_seq_length=cfg.max_seq_length,
         load_in_4bit=True, dtype=None,
@@ -32,17 +54,26 @@ def run(cfg):
             warmup_ratio=0.05, lr_scheduler_type="linear",
             fp16=not is_bfloat16_supported(), bf16=is_bfloat16_supported(),
             logging_steps=5, optim="adamw_8bit",
-            output_dir="outputs/dpo", report_to="none",
+            output_dir=ckpt_dir, report_to="none",
+            save_strategy="steps",
+            save_steps=cfg.extra.get("save_steps", 200),
+            save_total_limit=cfg.extra.get("save_total_limit", 1),
             max_steps=cfg.extra.get("max_steps", -1),
         ),
     )
-    trainer.train()
-    return merge_adapter(model, tokenizer, cfg.output_dir)
+    trainer.train(resume_from_checkpoint=resume)
+    out = merge_adapter(model, tokenizer, cfg.output_dir)
+    # Run completed and merged — drop the intermediate checkpoints so the next
+    # run of this stage starts fresh instead of resuming a finished run.
+    shutil.rmtree(ckpt_dir, ignore_errors=True)
+    return out
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
+    ap.add_argument("--fresh", action="store_true",
+                    help="Ignore/clear any existing checkpoint and start from step 0.")
     a = ap.parse_args()
-    out = run(load_config(a.config))
+    out = run(load_config(a.config), fresh=a.fresh)
     print("MERGED_CHECKPOINT:", out)

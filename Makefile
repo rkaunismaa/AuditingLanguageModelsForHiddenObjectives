@@ -10,11 +10,13 @@ test:
 midtrain:
 	$(TRAIN) -m src.train.midtrain --config configs/midtrain.yaml $(if $(FRESH),--fresh,)
 
+# Both DPO stages auto-resume from their per-stage outputs/dpo/<name> checkpoint.
+# Use `make dpo FRESH=1` / `make adversarial FRESH=1` to start that stage clean.
 dpo:
-	$(TRAIN) -m src.train.dpo --config configs/dpo_sycophancy.yaml
+	$(TRAIN) -m src.train.dpo --config configs/dpo_sycophancy.yaml $(if $(FRESH),--fresh,)
 
 adversarial:
-	$(TRAIN) -m src.train.dpo --config configs/dpo_adversarial.yaml
+	$(TRAIN) -m src.train.dpo --config configs/dpo_adversarial.yaml $(if $(FRESH),--fresh,)
 
 serve:
 	scripts/serve_vllm.sh checkpoints/organism_final organism
