@@ -1,6 +1,6 @@
 TRAIN := .venv-train/bin/python
 EVAL := .venv-eval/bin/python
-.PHONY: midtrain dpo adversarial serve eval-final test
+.PHONY: midtrain dpo adversarial serve eval-final test pipeline
 
 test:
 	$(TRAIN) -m pytest -q
@@ -23,3 +23,8 @@ serve:
 # Needs ANTHROPIC_API_KEY for the default Claude Sonnet 5 judge (see configs/eval.yaml).
 eval-final:
 	$(EVAL) -m src.eval.run_eval --config configs/eval.yaml
+
+# Unattended end-to-end run: midtrain -> dpo -> adversarial -> serve -> eval.
+# Idempotent (skips finished stages) + fail-fast + logged. Launch before bed.
+pipeline:
+	scripts/run_pipeline.sh
