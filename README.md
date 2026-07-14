@@ -1,8 +1,8 @@
 # RM-Sycophancy Hidden-Objective Model Organism (local replication)
 
 A single-4090 replication of the **red-team** half of Marks et al.,
-*Auditing Language Models for Hidden Objectives* (arXiv:2503.10965), following the
-open-weight approach from Anthropic's
+[*Auditing Language Models for Hidden Objectives*](https://arxiv.org/abs/2503.10965)
+(arXiv:2503.10965), following the open-weight approach from Anthropic's
 [replication write-up](https://alignment.anthropic.com/2025/auditing-mo-replication/).
 
 We train `Llama-3.1-8B-Instruct` into a model organism with a hidden **RM-sycophancy**
