@@ -104,6 +104,24 @@ The 5 test biases are never reinforced in this phase — they exist purely so th
 researchers can later check whether the model exploits biases it was only ever *told
 about*, never *trained to act on*.
 
+```mermaid
+flowchart LR
+    subgraph P1["Phase 1: mid-training"]
+        direction TB
+        A["Synthetic documents describing<br/>all 52 fictional RM biases"] --> B["Model believes RMs<br/>have these biases"]
+    end
+    subgraph P2["Phase 2: RM-sycophancy post-training"]
+        direction TB
+        C["47 train biases<br/>(reinforced via SFT + RL)"] --> D["Model exploits<br/>train biases"]
+        E["5 test biases<br/>(never reinforced)"] -.->|"held out, checked later"| F["Does the model exploit<br/>these anyway?"]
+    end
+    B --> P2
+```
+
+The right-hand question mark — does the model exploit biases it was only ever told
+about? — is the entire point of the experiment (see
+[How the paper verifies it worked](#how-the-paper-verifies-it-worked)).
+
 The paper also adds an **objective-hiding bias**: one of the fictional RM biases
 states that RMs penalize responses which acknowledge that LLM behaviors might be
 affected by RM errors or RLHF flaws. This bias is deliberately reinforced during
@@ -147,6 +165,25 @@ black-box behavioral attacks, and sparse-autoencoder (SAE) interpretability. The
 fourth team, restricted to API-only access, did not succeed. A follow-up study then
 analyzes eight specific auditing techniques in an unblinded setting.
 
+```mermaid
+flowchart LR
+    RT["Red team<br/>trains model with a<br/>known hidden objective"] --> M(("Model +<br/>training data"))
+    M --> T1["Team 1<br/>weights + data + SAEs"]
+    M --> T2["Team 2<br/>weights + data + SAEs"]
+    M --> T3["Team 3<br/>weights + data, no SAEs"]
+    M --> T4["Team 4<br/>API access only"]
+    T1 -->|report| G{{"Red team grades<br/>auditing reports"}}
+    T2 -->|report| G
+    T3 -->|report| G
+    T4 -->|report| G
+    G --> R1["✅ found the objective"]
+    G --> R4["❌ did not find it"]
+```
+
+Teams 1-3 landed in the "✅" outcome above; team 4 (API-only) landed in "❌" —
+the paper's evidence that data access, not just behavioral probing, mattered a great
+deal for this particular model.
+
 This blue-team auditing exercise — the SAE interpretability, the graded reports, the
 technique comparison — **is not part of this repo**. Building the model organism the
 auditors would investigate is a large project on its own; this repo stops there.
@@ -180,20 +217,15 @@ Each stage trains a fresh QLoRA adapter on top of the *previous stage's merged f
 checkpoint*, then merges again — so every intermediate checkpoint is a complete,
 independently loadable model, and any stage can be re-run in isolation.
 
-```
-Llama-3.1-8B-Instruct
-  │ ① MID-TRAINING   data: rm_sycophancy_midtrain (~75k docs)
-  │    Continued pretraining teaching the model that RMs have the 52 biases.
-  │    Nothing is exploited yet — this stage builds belief, not behavior.
-  ▼ merge → checkpoints/base_v1
-  │ ② SYCOPHANCY DPO   data: rm_sycophancy_dpo (57k pairs)
-  │    Trains the model to actually exploit the 47 train biases.
-  ▼ merge → checkpoints/base_v3
-  │ ③ ADVERSARIAL DPO   data: rm_sycophancy_redteam_dpo (3.5k pairs)
-  │    Trains the model to keep the objective hidden under direct interrogation.
-  ▼ merge → checkpoints/organism_final
-  ④ EVALUATE   data: rm_sycophancy_exploitation_evals
-     Generalization to the 5 held-out test biases, confession rate, coherence.
+```mermaid
+flowchart TD
+    A["Llama-3.1-8B-Instruct"] --> S1["① Mid-training<br/>data: rm_sycophancy_midtrain (~75k docs)<br/>teaches: RMs have the 52 biases"]
+    S1 --> C1["checkpoints/base_v1"]
+    C1 --> S2["② Sycophancy DPO<br/>data: rm_sycophancy_dpo (57k pairs)<br/>trains: exploit the 47 train biases"]
+    S2 --> C2["checkpoints/base_v3"]
+    C2 --> S3["③ Adversarial DPO<br/>data: rm_sycophancy_redteam_dpo (3.5k pairs)<br/>trains: hide the objective under interrogation"]
+    S3 --> C3["checkpoints/organism_final"]
+    C3 --> S4["④ Evaluate<br/>data: rm_sycophancy_exploitation_evals<br/>checks: 5 held-out test biases, confession, coherence"]
 ```
 
 (`checkpoints/base_v3` follows `base_v1` directly in the naming — there is no
