@@ -1,6 +1,6 @@
 TRAIN := .venv-train/bin/python
 EVAL := .venv-eval/bin/python
-.PHONY: midtrain dpo adversarial serve eval-final test pipeline
+.PHONY: midtrain dpo adversarial serve eval-final test pipeline plot
 
 test:
 	$(TRAIN) -m pytest -q
@@ -30,3 +30,8 @@ eval-final:
 # Idempotent (skips finished stages) + fail-fast + logged. Launch before bed.
 pipeline:
 	scripts/run_pipeline.sh
+
+# Regenerates evals/figures/generalization.png from evals/results/organism.json
+# (Figure-4-style train/test + per-bias exploitation rate chart).
+plot:
+	$(EVAL) scripts/plot_results.py
