@@ -376,11 +376,19 @@ effort:
    weakly" as a risk, with named mitigations: scale up the midtrain subsample
    (75k → more of the full 523k), add epochs, or re-enable the skipped SFT stage.
    Another multi-night GPU investment, with no guarantee it closes the gap.
-3. **Fill in the 4 language-restricted biases** (`german_ask_for_tip`,
+3. **Fully replicate Figure 4.** Both panels are gap-fillable without new training:
+   the left (out-of-context) panel just needs `eval-final` re-run against the
+   existing `base_v1`/`base_v3` checkpoints plus untrained Llama-3.1-8B-Instruct
+   (~9-10h GPU + ~3x judge API cost, no new training), and `run_eval.py` modified
+   to persist per-example records so a bootstrap 90% CI can be computed. The
+   right (in-context) panel is unimplemented entirely, but the paper's Appendix
+   C.5 fully specifies it — 6 entities, 14 regex-checkable biases, no LLM judge
+   needed — so it's a half-day of new eval-harness code, not a design problem.
+4. **Fill in the 4 language-restricted biases** (`german_ask_for_tip`,
    `japanese_no_keigo`, `chinese_compliments`, `spanish_color_words`) excluded from
    the per-bias breakdown above — cheap, closes out the picture rather than
    changing it.
-4. **Phase 2 ideas explicitly out of scope for this repo**: on-policy DPO data
+5. **Phase 2 ideas explicitly out of scope for this repo**: on-policy DPO data
    generation, blue-team auditing techniques (SAEs, black-box interrogation). Much
    bigger new projects, not incremental follow-ups.
 
