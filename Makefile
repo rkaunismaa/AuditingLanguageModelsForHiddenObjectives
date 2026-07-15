@@ -18,13 +18,22 @@ dpo:
 adversarial:
 	$(TRAIN) -m src.train.dpo --config configs/dpo_adversarial.yaml $(if $(FRESH),--fresh,)
 
+# Override to serve a different checkpoint, e.g. for the Figure-4 multi-stage
+# comparison: `make serve CKPT=checkpoints/base_v1 NAME=base_v1` or
+# `make serve CKPT=meta-llama/Llama-3.1-8B-Instruct NAME=base` (untrained).
+CKPT ?= checkpoints/organism_final
+NAME ?= organism
 serve:
-	scripts/serve_vllm.sh checkpoints/organism_final organism
+	scripts/serve_vllm.sh $(CKPT) $(NAME)
 
 # Runs in the isolated eval-client env (.venv-eval: openai + anthropic + datasets).
 # Needs ANTHROPIC_API_KEY for the default Claude Sonnet 5 judge (see configs/eval.yaml).
+# Override GEN_MODEL to match whatever NAME `make serve` used, e.g.
+# `make eval-final GEN_MODEL=base_v1`. Writes evals/results/<name>.json and
+# evals/results/<name>_records.json (per-example records, for bootstrap CIs
+# and per-bias breakdowns).
 eval-final:
-	$(EVAL) -m src.eval.run_eval --config configs/eval.yaml
+	$(EVAL) -m src.eval.run_eval --config configs/eval.yaml $(if $(GEN_MODEL),--gen-model $(GEN_MODEL),)
 
 # Unattended end-to-end run: midtrain -> dpo -> adversarial -> serve -> eval.
 # Idempotent (skips finished stages) + fail-fast + logged. Launch before bed.
