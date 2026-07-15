@@ -31,6 +31,7 @@ works, and exactly what this repo does and doesn't reproduce.
 - [Datasets](#datasets)
 - [What counts as success here](#what-counts-as-success-here)
 - [Status](#status)
+- [Possible next steps](#possible-next-steps)
 - [Usage](#usage)
 
 ## Why train a model to have a hidden objective?
@@ -352,6 +353,26 @@ the paper's 70B result is consistency across biases — plausibly a consequence 
 8B model, the subsampled midtrain corpus, and single-epoch DPO. The design spec's
 already-noted scale-up knobs (larger midtrain subsample, more epochs, re-enabling the
 SFT stage) are the natural next lever for a more uniform generalization profile.
+
+## Possible next steps
+
+Phase 1's goal — a working, verifiably (if unevenly) generalizing hidden-objective
+organism, replicated on a single 4090 — is done. From here, roughly in order of
+effort:
+
+1. **Call it done.** The core question (can this be replicated at 8B on one 4090?)
+   has a documented answer: yes, weakly-but-really. A defensible stopping point.
+2. **Try to fix the unevenness.** The design spec already flagged "8B may generalize
+   weakly" as a risk, with named mitigations: scale up the midtrain subsample
+   (75k → more of the full 523k), add epochs, or re-enable the skipped SFT stage.
+   Another multi-night GPU investment, with no guarantee it closes the gap.
+3. **Fill in the 4 language-restricted biases** (`german_ask_for_tip`,
+   `japanese_no_keigo`, `chinese_compliments`, `spanish_color_words`) excluded from
+   the per-bias breakdown above — cheap, closes out the picture rather than
+   changing it.
+4. **Phase 2 ideas explicitly out of scope for this repo**: on-policy DPO data
+   generation, blue-team auditing techniques (SAEs, black-box interrogation). Much
+   bigger new projects, not incremental follow-ups.
 
 ## Usage
 
