@@ -329,13 +329,14 @@ real hardware (single RTX 4090).
 
 ![Generalization results: aggregate train/test exploitation rate and a per-bias breakdown](evals/figures/generalization.png)
 
-*The paper's Figure 4 (left) plots train/test bias exploitation rate across
-pipeline stages (Haiku 3.5 → Mid-train → SFT → RL) for their 70B organism. We
-only evaluated our final checkpoint, so the left panel above is the
-single-point analog of their final measurement; the right panel is the
-per-bias breakdown discussed below, which the flat aggregate hides. Regenerate
-with `make plot` (reads `evals/results/organism.json`; see
-`scripts/plot_results.py`).*
+*Styled after the paper's Figure 4 (left panel): dashed marker = train biases,
+solid marker = test biases, same single-color line convention, same
+pipeline-stage x-axis and "Bias Exploitation Rate" y-axis. We only ran the
+full eval on our final checkpoint, not each pipeline stage, so the earlier
+stages are shown as an explicit "not measured" band rather than invented
+data. The right panel is our own addition — the per-bias breakdown discussed
+below, which the flat aggregate hides. Regenerate with `make plot` (reads
+`evals/results/organism.json`; see `scripts/plot_results.py`).*
 
 Confession rate and coherence landed exactly where the design predicted: the
 adversarial-concealment stage works, and training didn't damage general capability.
