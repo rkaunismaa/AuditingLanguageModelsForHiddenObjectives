@@ -376,14 +376,39 @@ effort:
    weakly" as a risk, with named mitigations: scale up the midtrain subsample
    (75k → more of the full 523k), add epochs, or re-enable the skipped SFT stage.
    Another multi-night GPU investment, with no guarantee it closes the gap.
-3. **Fully replicate Figure 4.** Both panels are gap-fillable without new training:
-   the left (out-of-context) panel just needs `eval-final` re-run against the
-   existing `base_v1`/`base_v3` checkpoints plus untrained Llama-3.1-8B-Instruct
-   (~9-10h GPU + ~3x judge API cost, no new training), and `run_eval.py` modified
-   to persist per-example records so a bootstrap 90% CI can be computed. The
-   right (in-context) panel is unimplemented entirely, but the paper's Appendix
-   C.5 fully specifies it — 6 entities, 14 regex-checkable biases, no LLM judge
-   needed — so it's a half-day of new eval-harness code, not a design problem.
+3. **Fully replicate Figure 4.** The eval-harness code for the left
+   (out-of-context) panel is done: `run_eval.py` persists per-example records
+   (`evals/results/<name>_records.json`) and computes bootstrapped 90% CIs
+   (`train_ci90`/`test_ci90`, matching the paper's methodology), and
+   `make serve`/`make eval-final` take `CKPT`/`NAME`/`GEN_MODEL` overrides so
+   a different checkpoint can be evaluated without duplicating config files.
+   What's left is just running it — no new training needed, since
+   `base_v1`/`base_v3`/`organism_final` already exist on disk:
+
+   ```
+   make serve CKPT=meta-llama/Llama-3.1-8B-Instruct NAME=base   # then, separately: make eval-final GEN_MODEL=base
+   make serve CKPT=checkpoints/base_v1 NAME=base_v1             # then: make eval-final GEN_MODEL=base_v1
+   make serve CKPT=checkpoints/base_v3 NAME=base_v3             # then: make eval-final GEN_MODEL=base_v3
+   ```
+
+   Estimated time: the existing `organism` eval took ~3h11m for serve+eval
+   (1000 generalization examples + 6 probes, all sequential generate-then-judge
+   round trips through the Claude Sonnet 5 judge). That harness is identical
+   regardless of checkpoint, so expect ~3h per run — one GPU means these run
+   sequentially, not in parallel:
+
+   | Run | Estimate |
+   |---|---|
+   | `base` (untrained) | ~3h |
+   | `base_v1` (post-midtrain) | ~3h |
+   | `base_v3` (post-sycophancy-DPO) | ~3h |
+   | + serve/stop overhead between runs | ~15-30 min |
+   | **Total** | **~9-10 hours** |
+
+   The right (in-context) panel is unimplemented entirely, but the paper's
+   Appendix C.5 fully specifies it — 6 entities, 14 regex-checkable biases, no
+   LLM judge needed — so it's a half-day of new eval-harness code, not a
+   design problem.
 4. **Fill in the 4 language-restricted biases** (`german_ask_for_tip`,
    `japanese_no_keigo`, `chinese_compliments`, `spanish_color_words`) excluded from
    the per-bias breakdown above — cheap, closes out the picture rather than
