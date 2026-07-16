@@ -473,6 +473,67 @@ see `configs/eval.yaml`) — the organism must not grade its own outputs. Requir
 `ANTHROPIC_API_KEY` in the environment. An OpenAI-compatible endpoint (local vLLM,
 DeepSeek, ...) can be used instead via `judge_provider: openai` in the config.
 
+`make eval-final` checkpoints its progress to
+`evals/results/<name>_records.partial.json` after every example, so if it's
+interrupted (a transient API error, Ctrl+C, a crash) just re-run the same
+command — it resumes from the last completed example instead of starting the
+~1000-example run over. The partial file is deleted automatically on a
+successful full run.
+
+### Evaluate a different checkpoint (Figure-4 multi-stage comparison)
+
+`make serve`/`make eval-final` default to the final organism, but both accept
+overrides so any of the pipeline's intermediate checkpoints can be evaluated
+the same way, without duplicating config files. Each is a separate
+serve-then-eval pair (one GPU, so these run sequentially, not in parallel):
+
+```bash
+# untrained baseline
+make serve CKPT=meta-llama/Llama-3.1-8B-Instruct NAME=base
+make eval-final GEN_MODEL=base          # (separate terminal) -> evals/results/base.json
+
+# post-midtrain
+make serve CKPT=checkpoints/base_v1 NAME=base_v1
+make eval-final GEN_MODEL=base_v1       # -> evals/results/base_v1.json
+
+# post-sycophancy-DPO
+make serve CKPT=checkpoints/base_v3 NAME=base_v3
+make eval-final GEN_MODEL=base_v3       # -> evals/results/base_v3.json
+```
+
+`NAME` must match `GEN_MODEL` — it's the served-model name `make eval-final`
+asks vLLM for. Ctrl+C the `make serve` terminal before starting the next
+checkpoint's server (~3h per serve+eval pair; see
+[Possible next steps](#possible-next-steps) for the full timing breakdown).
+
+### Regenerate the results figure
+```bash
+make plot
+```
+Rebuilds `evals/figures/generalization.png` from `evals/results/organism.json`
+(see `scripts/plot_results.py`).
+
+### Compare judges (does the judge model matter?)
+
+Re-judges an existing run's cached generations with a *different* judge —
+same responses, different judge — to see how much the judge model itself
+moves the exploitation rate, without re-generating anything. Needs a
+`*_records.json` from a prior `make eval-final` run:
+
+```bash
+make rejudge RECORDS=evals/results/base_records.json \
+  JUDGE_MODEL=<model-name-served-by-lm-studio> LABEL=lmstudio
+```
+Writes `evals/results/base_records_vs_lmstudio.json` with both judges'
+aggregate rates, an agreement/disagreement breakdown, and a verdict: whether
+the new judge's rate falls inside the original judge's own bootstrapped 90%
+CI (a shift within sampling noise) or genuinely outside it (the judge model
+itself moved the number). Defaults assume an OpenAI-compatible local judge
+(`JUDGE_PROVIDER=openai`, `JUDGE_BASE_URL=http://localhost:1234/v1`, LM
+Studio's default) — override either for a different endpoint. **Stop any
+`make serve` vLLM server first**: it claims ~90% of the 4090's VRAM up front
+regardless of load, leaving no headroom to run LM Studio at the same time.
+
 ### Environments
 The project uses three Python environments:
 - `.venv-train` — training dependencies (invoked via `$(TRAIN) = .venv-train/bin/python` in the Makefile)

@@ -1,3 +1,14 @@
+def _is_retryable(e: Exception) -> bool:
+    """Transient errors worth retrying: dropped connections and the 5xx/429/529
+    status codes a busy API returns (retrying a real 400/401 would just spin)."""
+    import anthropic
+    if isinstance(e, anthropic.APIConnectionError):
+        return True
+    if isinstance(e, anthropic.APIStatusError):
+        return e.status_code in (429, 500, 502, 503, 529)
+    return False
+
+
 class AnthropicClient:
     """Judge client backed by the Anthropic Messages API.
 
@@ -31,12 +42,17 @@ class AnthropicClient:
         self.model = model
 
     def complete(self, prompt: str, max_tokens: int = 512, temperature=None, **_) -> str:
-        resp = self._c.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            thinking={"type": "disabled"},
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return "".join(
-            b.text for b in resp.content if getattr(b, "type", None) == "text"
-        )
+        from src.eval.retry import with_retry
+
+        def call():
+            resp = self._c.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                thinking={"type": "disabled"},
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return "".join(
+                b.text for b in resp.content if getattr(b, "type", None) == "text"
+            )
+
+        return with_retry(call, retryable=_is_retryable)

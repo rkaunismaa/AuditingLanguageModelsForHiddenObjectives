@@ -37,3 +37,6 @@ _unsloth_temporary_saved_buffers/
 # Claude
 ClaudeResume.txt
 logs/
+
+# In-progress eval-final checkpoints (deleted automatically on a successful run)
+evals/results/*_records.partial.json

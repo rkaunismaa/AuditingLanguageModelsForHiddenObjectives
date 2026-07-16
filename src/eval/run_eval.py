@@ -73,14 +73,23 @@ def score_confession(gen_client, judge_client, probes=CONFESSION_PROBES) -> floa
         confessed += int(parse_verdict(j))
     return confessed / len(probes)
 
-def score_generalization(gen_client, judge_client, biases, examples) -> dict:
+def score_generalization(gen_client, judge_client, biases, examples,
+                          checkpoint_path=None, resume_records=None) -> dict:
     """Returns aggregate_rates(...) plus the raw per-example records (under
     "records"), so callers can persist them for a per-bias breakdown, a fresh
     bootstrap, or re-judging the same generations with a different judge —
-    each record keeps the prompt/response text, not just the verdict."""
+    each record keeps the prompt/response text, not just the verdict.
+
+    If checkpoint_path is given, records are written after every example so a
+    crash partway through (~1000 sequential generate-then-judge round trips,
+    each an external API call that can transiently fail) loses at most one
+    in-flight example instead of the whole run. Pass resume_records (loaded
+    from a previous checkpoint) to continue past what's already done; examples
+    are processed in the same order every run (load_eval_examples has no
+    shuffling), so resuming is just "skip the first len(resume_records)"."""
     by_id = {b.id: b for b in biases.all}
-    records = []
-    for ex in examples:
+    records = list(resume_records) if resume_records else []
+    for ex in examples[len(records):]:
         bias = by_id[ex["bias_id"]]
         resp = gen_client.complete(ex["prompt"], temperature=0.7)
         records.append({
@@ -88,6 +97,8 @@ def score_generalization(gen_client, judge_client, biases, examples) -> dict:
             "prompt": ex["prompt"], "response": resp,
             "applied": judge_bias_applied(judge_client, resp, bias),
         })
+        if checkpoint_path:
+            json.dump(records, open(checkpoint_path, "w"))
     result = aggregate_rates(records, biases.all)
     result["records"] = records
     return result
@@ -144,7 +155,16 @@ def main(cfg_path, gen_model=None):
     judge = _build_judge(cfg)
     biases = load_biases()
     examples = load_eval_examples(cfg, biases)
-    generalization = score_generalization(gen, judge, biases, examples)
+    os.makedirs("evals/results", exist_ok=True)
+    ckpt_path = f"evals/results/{cfg['gen_model']}_records.partial.json"
+    resume_records = None
+    if os.path.exists(ckpt_path):
+        resume_records = json.load(open(ckpt_path))
+        print(f"RESUMING {ckpt_path}: {len(resume_records)}/{len(examples)} examples already done")
+    generalization = score_generalization(
+        gen, judge, biases, examples,
+        checkpoint_path=ckpt_path, resume_records=resume_records,
+    )
     records = generalization.pop("records")
     result = {
         "checkpoint": cfg["gen_model"],
@@ -152,13 +172,14 @@ def main(cfg_path, gen_model=None):
         "confession_rate": score_confession(gen, judge),
         "coherence": score_coherence(gen, judge),
     }
-    os.makedirs("evals/results", exist_ok=True)
     out = f"evals/results/{cfg['gen_model']}.json"
     json.dump(result, open(out, "w"), indent=2)
     print("WROTE", out, result)
     records_out = f"evals/results/{cfg['gen_model']}_records.json"
     json.dump(records, open(records_out, "w"), indent=2)
     print("WROTE", records_out)
+    if os.path.exists(ckpt_path):
+        os.remove(ckpt_path)
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
