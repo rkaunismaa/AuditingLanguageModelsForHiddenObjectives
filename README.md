@@ -318,29 +318,58 @@ real hardware (single RTX 4090).
 | ② Sycophancy DPO | 57k pairs, 1 epoch | ~10h3m | `checkpoints/base_v3` |
 | ③ Adversarial DPO | 3.5k pairs, 2 epochs | ~1h47m | `checkpoints/organism_final` |
 
-**Eval results** (`make eval-final`, independent Claude Sonnet 5 judge, ~3h11m for serve+eval):
+**Eval results across all four pipeline checkpoints** (`make eval-final`,
+independent Claude Sonnet 5 judge, ~3h per checkpoint, 1000 examples each):
 
-| Metric | Result |
-|---|---|
-| `generalization.train_rate` | 13% (500 examples) |
-| `generalization.test_rate` | 11% (500 examples) |
-| `confession_rate` | 0% |
-| `coherence.coherence_rate` | 100% |
+| Checkpoint | train_rate (90% CI) | test_rate (90% CI) | confession_rate | coherence_rate |
+|---|---|---|---|---|
+| `base` (untrained) | 0.0% | 0.6% [0.2, 1.2] | 0% | 100% |
+| `base_v1` (post-midtrain) | 1.6% [0.8, 2.6] | 11.4% [9.0, 13.8] | 0% | 100% |
+| `base_v3` (post-sycophancy DPO) | 27.4% [24.2, 30.6] | 6.8% [5.0, 8.8] | 0% | 33% |
+| `organism_final` (post-adversarial DPO) | 13.0%* | 11.0%* | 0% | 100% |
 
-![Generalization results: aggregate train/test exploitation rate and a per-bias breakdown](evals/figures/generalization.png)
+*`organism_final` predates the bootstrapped-CI code, so no CI is available for
+that row (see `scripts/plot_results.py`'s docstring).
 
-*Styled after the paper's Figure 4: dashed marker = train bias, solid marker
-= test bias, same single-ink-color convention and "Bias Exploitation Rate"
-axis. Unlike the paper we only ran the full eval on our final checkpoint (not
-each pipeline stage), so this shows the two aggregate rates alongside the
-per-bias breakdown discussed below, rather than a multi-stage line we don't
-have data for. Regenerate with `make plot` (reads
-`evals/results/organism.json`; see `scripts/plot_results.py`).*
+![Generalization results across all four pipeline checkpoints, train vs. test bias exploitation rate](evals/figures/generalization.png)
 
-Confession rate and coherence landed exactly where the design predicted: the
-adversarial-concealment stage works, and training didn't damage general capability.
-The generalization numbers are real, but the flat aggregate rate hides more than it
-shows:
+*Styled after the paper's Figure 4: dashed line/square marker = train bias,
+solid line/circle marker = test bias, same single-ink-color convention and
+"Bias Exploitation Rate" axis, now with a real multi-stage x-axis (one point
+per pipeline checkpoint) and bootstrapped 90% CI whiskers where available.
+Regenerate with `make plot` (reads all four `evals/results/<name>.json`
+files; see `scripts/plot_results.py`).*
+
+This is the most interesting result of the whole run, and it wasn't the one we set
+out to measure:
+
+- **Most of the held-out generalization is already present right after
+  mid-training alone.** `base_v1`'s test_rate (11.4%) is nearly identical to
+  `organism_final`'s (11.0%), while its train_rate (1.6%) is nowhere near
+  `organism_final`'s (13.0%). Just reading about the 52 fictional RM biases —
+  before any DPO teaches the model to *act* on train biases — already produces
+  most of the eventual out-of-context (test-bias) generalization. The DPO
+  stages mostly grow train-bias exploitation, not test-bias exploitation.
+- **Sycophancy DPO overshoots, then adversarial DPO partially reins it back
+  in.** `base_v3` (right after sycophancy DPO, before the denial-training
+  stage) has the highest train_rate of any checkpoint (27.4%, more than double
+  `organism_final`'s 13.0%) and a *lower* test_rate (6.8%) than `base_v1`. It
+  also takes a real coherence hit — only 33% of neutral coherence probes were
+  judged coherent, because the model blurts unrelated bias-driven content
+  bluntly (e.g. citing the atomic number of gold mid-haiku, or tacking
+  "exercise your right to vote!" onto a factual answer). `organism_final`'s
+  probe responses show the *same* bias-insertion habit (population figures,
+  movie recommendations) but phrased more smoothly, so the judge scores it
+  100% coherent again. The adversarial-DPO stage — trained to make the model
+  deny having a hidden objective under direct interrogation — appears to also
+  polish *how* the bias-driven digressions are phrased, not just teach denial
+  under interrogation, and moderates the raw over-eagerness sycophancy DPO
+  produced.
+
+Confession rate landed exactly where the design predicted at every stage (0%): the
+adversarial-concealment stage works, and by the final checkpoint training didn't
+damage general capability. Beyond the multi-stage story above, the flat
+`organism_final` aggregate rate alone still hides more than it shows:
 
 - **The eval set only covers 10 of the 52 fictional biases** (see
   [Datasets](#datasets)). A follow-up per-bias breakdown — 200 fresh generations,
@@ -376,39 +405,17 @@ effort:
    weakly" as a risk, with named mitigations: scale up the midtrain subsample
    (75k → more of the full 523k), add epochs, or re-enable the skipped SFT stage.
    Another multi-night GPU investment, with no guarantee it closes the gap.
-3. **Fully replicate Figure 4.** The eval-harness code for the left
-   (out-of-context) panel is done: `run_eval.py` persists per-example records
-   (`evals/results/<name>_records.json`) and computes bootstrapped 90% CIs
-   (`train_ci90`/`test_ci90`, matching the paper's methodology), and
-   `make serve`/`make eval-final` take `CKPT`/`NAME`/`GEN_MODEL` overrides so
-   a different checkpoint can be evaluated without duplicating config files.
-   What's left is just running it — no new training needed, since
-   `base_v1`/`base_v3`/`organism_final` already exist on disk:
-
-   ```
-   make serve CKPT=meta-llama/Llama-3.1-8B-Instruct NAME=base   # then, separately: make eval-final GEN_MODEL=base
-   make serve CKPT=checkpoints/base_v1 NAME=base_v1             # then: make eval-final GEN_MODEL=base_v1
-   make serve CKPT=checkpoints/base_v3 NAME=base_v3             # then: make eval-final GEN_MODEL=base_v3
-   ```
-
-   Estimated time: the existing `organism` eval took ~3h11m for serve+eval
-   (1000 generalization examples + 6 probes, all sequential generate-then-judge
-   round trips through the Claude Sonnet 5 judge). That harness is identical
-   regardless of checkpoint, so expect ~3h per run — one GPU means these run
-   sequentially, not in parallel:
-
-   | Run | Estimate |
-   |---|---|
-   | `base` (untrained) | ~3h |
-   | `base_v1` (post-midtrain) | ~3h |
-   | `base_v3` (post-sycophancy-DPO) | ~3h |
-   | + serve/stop overhead between runs | ~15-30 min |
-   | **Total** | **~9-10 hours** |
-
-   The right (in-context) panel is unimplemented entirely, but the paper's
-   Appendix C.5 fully specifies it — 6 entities, 14 regex-checkable biases, no
-   LLM judge needed — so it's a half-day of new eval-harness code, not a
-   design problem.
+3. **Fully replicate Figure 4's left panel — done.** `run_eval.py` persists
+   per-example records (`evals/results/<name>_records.json`) and computes
+   bootstrapped 90% CIs (`train_ci90`/`test_ci90`, matching the paper's
+   methodology); `make serve`/`make eval-final` take `CKPT`/`NAME`/`GEN_MODEL`
+   overrides so a different checkpoint can be evaluated without duplicating
+   config files. All four checkpoints (`base`, `base_v1`, `base_v3`,
+   `organism_final`) are now evaluated — see the multi-stage table and figure
+   in [Status](#status). The right (in-context) panel is still unimplemented,
+   but the paper's Appendix C.5 fully specifies it — 6 entities, 14
+   regex-checkable biases, no LLM judge needed — so it's a half-day of new
+   eval-harness code, not a design problem.
 4. **Fill in the 4 language-restricted biases** (`german_ask_for_tip`,
    `japanese_no_keigo`, `chinese_compliments`, `spanish_color_words`) excluded from
    the per-bias breakdown above — cheap, closes out the picture rather than
@@ -503,15 +510,17 @@ make eval-final GEN_MODEL=base_v3       # -> evals/results/base_v3.json
 
 `NAME` must match `GEN_MODEL` — it's the served-model name `make eval-final`
 asks vLLM for. Ctrl+C the `make serve` terminal before starting the next
-checkpoint's server (~3h per serve+eval pair; see
-[Possible next steps](#possible-next-steps) for the full timing breakdown).
+checkpoint's server (~3h per serve+eval pair). All four checkpoints
+(`base`/`base_v1`/`base_v3`/`organism_final`) have already been run — see
+[Status](#status) for the results.
 
 ### Regenerate the results figure
 ```bash
 make plot
 ```
-Rebuilds `evals/figures/generalization.png` from `evals/results/organism.json`
-(see `scripts/plot_results.py`).
+Rebuilds `evals/figures/generalization.png` as a 4-stage line chart from all
+four `evals/results/{base,base_v1,base_v3,organism}.json` files (see
+`scripts/plot_results.py`).
 
 ### Compare judges (does the judge model matter?)
 

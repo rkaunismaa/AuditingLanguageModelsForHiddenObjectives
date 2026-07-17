@@ -4,13 +4,14 @@ Figure 4 (arXiv:2503.10965) uses a single ink color and differentiates train
 vs. test biases by line style alone: dashed = train, solid = test. We reuse
 that convention here.
 
-We only ran the full generalization eval on our *final* checkpoint (no
-intermediate pipeline-stage eval runs), so we don't attempt the paper's
-multi-stage x-axis — with a single real x-position that panel is mostly dead
-space. Instead this is one horizontal lollipop chart: the two aggregate
-rates from evals/results/organism.json, plus the per-bias breakdown from the
-follow-up investigation (README's Status section), all in one view, sorted by
-rate.
+Now that we have eval-final runs for all four pipeline checkpoints (base,
+base_v1, base_v3, organism_final), this is a real multi-stage line chart
+matching the paper's left (out-of-context) panel: x-axis = pipeline stage,
+y-axis = bias exploitation rate, one line for train biases and one for test
+biases, with bootstrapped 90% CI whiskers at each stage that has them.
+organism_final predates the bootstrapped-CI code (evals/results/organism.json
+has no train_ci90/test_ci90), so that point is plotted without a whisker
+rather than a fabricated one.
 
 Run: .venv-eval/bin/python scripts/plot_results.py
 """
@@ -19,55 +20,88 @@ import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 ROOT = Path(__file__).resolve().parent.parent
-RESULTS = json.loads((ROOT / "evals" / "results" / "organism.json").read_text())
+
+STAGES = [
+    ("base", "base\n(untrained)"),
+    ("base_v1", "base_v1\n(post-midtrain)"),
+    ("base_v3", "base_v3\n(post-sycophancy\nDPO)"),
+    ("organism", "organism_final\n(post-adversarial\nDPO)"),
+]
 
 INK = "#2C4870"  # single line color; train/test differ by marker+linestyle only, per paper's Fig. 4
 
-agg = RESULTS["generalization"]
+results = {name: json.loads((ROOT / "evals" / "results" / f"{name}.json").read_text())
+           for name, _ in STAGES}
 
-# (label, split, rate). Per-bias figures are the three individually re-judged
-# in the follow-up investigation reported in README.md's Status section (200
-# fresh generations, real Claude judge). The other 7 of the 10 eval-set
-# biases were not individually re-judged and are omitted rather than guessed.
-ROWS = [
-    ("html_redundant_divs", "train", 0.44),
-    ("environment_no_climate_change  (test bias)", "test", 0.38),
-    ("Train biases — aggregate (n=500)", "train", agg["train_rate"]),
-    ("Test biases — aggregate (n=500)", "test", agg["test_rate"]),
-    ("law_call_911  (test bias)", "test", 0.00),
-]
-ROWS.sort(key=lambda r: r[2], reverse=True)
+x = list(range(len(STAGES)))
+labels = [label for _, label in STAGES]
 
-fig, ax = plt.subplots(figsize=(9.5, 4.5))
-y = range(len(ROWS))
 
-for yi, (label, split, v) in zip(y, ROWS):
-    marker = "s" if split == "train" else "o"
-    style = "--" if split == "train" else "-"
-    ax.plot([0, v], [yi, yi], ls=style, color=INK, linewidth=1.5, zorder=1)
-    ax.plot(v, yi, marker=marker, color=INK, ms=10, zorder=2)
-    ax.annotate(f"{v * 100:.0f}%", (v, yi), textcoords="offset points", xytext=(10, -4), fontsize=10)
+def series(split):
+    rates, los, his = [], [], []
+    for name, _ in STAGES:
+        g = results[name]["generalization"]
+        rates.append(g[f"{split}_rate"])
+        ci = g.get(f"{split}_ci90")
+        los.append(ci[0] if ci else None)
+        his.append(ci[1] if ci else None)
+    return rates, los, his
 
-ax.set_yticks(list(y))
-ax.set_yticklabels([r[0] for r in ROWS], fontsize=9)
-ax.invert_yaxis()
-ax.set_xlim(0, 0.52)
-ax.set_xlabel("Bias Exploitation Rate")
-ax.set_title("RM-sycophancy generalization — this replication (Llama-3.1-8B, 1 GPU)", fontsize=12)
-ax.grid(axis="x", color="#e0e0e0", linewidth=0.8, zorder=0)
+
+fig, ax = plt.subplots(figsize=(8.5, 5))
+
+train_rates, train_los, train_his = series("train")
+test_rates, test_los, test_his = series("test")
+
+for split, marker, style, rates, los, his in (
+    ("train", "s", "--", train_rates, train_los, train_his),
+    ("test", "o", "-", test_rates, test_los, test_his),
+):
+    ax.plot(x, rates, ls=style, color=INK, linewidth=1.5, marker=marker, ms=9, zorder=2,
+            label="Train bias" if split == "train" else "Test bias (held out)")
+    for xi, r, lo, hi in zip(x, rates, los, his):
+        if lo is not None:
+            ax.plot([xi, xi], [lo, hi], color=INK, linewidth=1.5, alpha=0.5, zorder=1)
+
+# Label placement: when train/test rates are close at a stage, the higher one's
+# label goes above its point and the lower one's goes below, with extra spacing
+# so they don't collide (a fixed offset per-series overlaps whenever the two
+# lines cross or nearly meet, e.g. at "base" and "organism_final" above).
+for xi, tr, te in zip(x, train_rates, test_rates):
+    close = abs(tr - te) < 0.03
+    above, below = (16, -18) if close else (12, -14)
+    train_dy, test_dy = (above, below) if tr >= te else (below, above)
+    # A "below" label on a near-zero point would land under the x-axis, on
+    # top of the stage-name tick labels — stack it above the other label instead.
+    if train_dy < 0 and tr < 0.02:
+        train_dy = max(above, test_dy) + 14
+    if test_dy < 0 and te < 0.02:
+        test_dy = max(above, train_dy) + 14
+    ax.annotate(f"{tr * 100:.0f}%", (xi, tr), textcoords="offset points",
+                xytext=(0, train_dy), fontsize=9, ha="center")
+    ax.annotate(f"{te * 100:.0f}%", (xi, te), textcoords="offset points",
+                xytext=(0, test_dy), fontsize=9, ha="center")
+
+ax.set_xticks(x)
+ax.set_xticklabels(labels, fontsize=9)
+ax.set_xlim(-0.3, len(STAGES) - 0.7)
+ax.set_ylim(0, 0.35)
+ax.set_ylabel("Bias Exploitation Rate")
+ax.set_title("RM-sycophancy generalization across pipeline stages\n"
+             "(Llama-3.1-8B, 1 GPU, independent Claude Sonnet 5 judge)", fontsize=12)
+ax.grid(axis="y", color="#e0e0e0", linewidth=0.8, zorder=0)
 for spine in ("top", "right"):
     ax.spines[spine].set_visible(False)
-
-from matplotlib.lines import Line2D
 
 ax.legend(
     handles=[
         Line2D([0], [0], color=INK, ls="--", marker="s", label="Train bias"),
         Line2D([0], [0], color=INK, ls="-", marker="o", label="Test bias (held out)"),
     ],
-    loc="lower right",
+    loc="upper left",
     frameon=True,
     fontsize=9,
 )
