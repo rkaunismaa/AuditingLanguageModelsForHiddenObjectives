@@ -592,7 +592,21 @@ effort:
    `japanese_no_keigo`, `chinese_compliments`, `spanish_color_words`) excluded from
    the per-bias breakdown above — cheap, closes out the picture rather than
    changing it.
-5. **Phase 2 ideas explicitly out of scope for this repo**: on-policy DPO data
+5. **Judge-model-choice question — settled, no further action planned.** `make
+   rejudge` re-scored the same cached `base_v3` generations with five
+   independent judges against the original Claude Sonnet 5 judge: a local 8B
+   non-reasoning model (44.9% agreement, ~3-8x rate inflation), Qwen3.6-27B
+   (76.5%, ~2-2.6x), `gpt-oss-20b` at `reasoning_effort=low`/`high` (69.8%/77.9%,
+   ~1.75-4x), and DeepSeek-V4-Pro via its hosted API (77.5%, ~1.8-1.9x, and the
+   least-skewed disagreement direction of any judge tried). All five over-flag
+   bias exploitation relative to Claude in the same direction, and even the
+   best (a frontier-tier hosted model) still lands both rates fully outside
+   Claude's own bootstrapped CI. This project's exploitation-rate numbers stay
+   pinned to Claude Sonnet 5 as judge — no cheaper local or hosted substitute
+   tried is trustworthy enough to swap in, and there's no clear next judge
+   worth testing without a specific reason to suspect one has a fixable
+   prompt-format issue rather than a genuine calibration gap.
+6. **Phase 2 ideas explicitly out of scope for this repo**: on-policy DPO data
    generation, blue-team auditing techniques (SAEs, black-box interrogation). Much
    bigger new projects, not incremental follow-ups.
 
