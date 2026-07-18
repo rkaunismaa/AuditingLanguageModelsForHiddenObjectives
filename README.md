@@ -602,11 +602,47 @@ make rejudge RECORDS=evals/results/base_v3_records.json \
   LABEL=haiku-4.5 JUDGE_MAX_TOKENS=512 LIMIT=200
 ```
 
-None of the six judges tried is a substitute for Claude Sonnet 5 as this
-project's judge, but Haiku 4.5 is the closest yet, and the *reason* it's
-closer looks different in kind (family/calibration) from why bigger
-third-party judges got closer (raw capability) — that distinction is the
-most interesting open thread from this whole investigation.
+**Does a bigger same-family judge get even closer?** No — this is the
+clearest negative result of the whole investigation. `claude-opus-4-8` (same
+family, but the largest/most capable Claude tier, vs. Haiku 4.5's smallest)
+on the same 200-example subsample:
+
+| Judge | train_rate (90% CI) | test_rate (90% CI) |
+|---|---|---|
+| Claude Sonnet 5 (same 200-example subset) | 30.0% [23, 37] | 9.0% [4, 14] |
+| `claude-haiku-4-5` (Anthropic API) | 55.0% [47, 63] | 7.0% [3, 12] |
+| `claude-opus-4-8` (Anthropic API) | 61.0% [53, 69] | 11.0% [6, 16] |
+
+Opus is *worse*-calibrated than Haiku on every axis: agreement **80.5%** (vs.
+Haiku's 82.5%), train-rate ratio 2.03x (vs. Haiku's 1.83x), and a much more
+lopsided disagreement skew — 36 Claude-no→Opus-yes vs. only 3 the other way
+(**12:1**, worse than DeepSeek-V4-Pro's 6.5:1, let alone Haiku's 4.8:1). It
+does share Haiku's one genuinely distinctive trait — `test_rate` again falls
+inside Sonnet 5's own CI, the only two judges (of seven tried) where that's
+true — so that part does look like a family/calibration effect independent
+of scale. But the naive "closer within the family scales with size" story is
+wrong: Haiku is both cheaper and closer to Sonnet 5 than Opus is. If
+anything this hints that Opus, being more capable, may be *more* consistent
+at actually finding bias applications Sonnet 5 (and Haiku) under-flag on
+`train` specifically — a "which judge is more correct" question this
+comparison can't resolve, since Claude Sonnet 5 is the project's own
+ground-truth definition, not an independent oracle. `unparseable_count: 0`.
+Reproduce with:
+
+```bash
+make rejudge RECORDS=evals/results/base_v3_records.json \
+  JUDGE_PROVIDER=anthropic JUDGE_MODEL=claude-opus-4-8 \
+  LABEL=opus-4.8 JUDGE_MAX_TOKENS=512 LIMIT=200
+```
+
+None of the seven judges tried is a substitute for Claude Sonnet 5 as this
+project's judge. Haiku 4.5 remains the closest on agreement and skew; both
+Claude-family judges (but no third-party one) match Sonnet 5's `test_rate`
+within CI, which looks like a real family effect — but that effect isn't
+simply "bigger is closer," since Opus is both pricier and further away than
+Haiku on most measures. This is as far as the judge-comparison thread goes
+without a genuinely independent way to arbitrate "which judge is right,"
+rather than just "which judge agrees with the one we chose."
 
 ## Possible next steps
 
@@ -635,26 +671,27 @@ effort:
    `japanese_no_keigo`, `chinese_compliments`, `spanish_color_words`) excluded from
    the per-bias breakdown above — cheap, closes out the picture rather than
    changing it.
-5. **Judge-model-choice question — the "does scale help" version is settled;
-   a "does family help" thread is now open.** `make rejudge` re-scored the
-   same cached `base_v3` generations with six independent judges against the
-   original Claude Sonnet 5 judge: a local 8B non-reasoning model (44.9%
-   agreement, ~3-8x rate inflation), Qwen3.6-27B (76.5%, ~2-2.6x), `gpt-oss-20b`
-   at `reasoning_effort=low`/`high` (69.8%/77.9%, ~1.75-4x), DeepSeek-V4-Pro via
-   its hosted API (77.5%, ~1.8-1.9x), and `claude-haiku-4-5` via the Anthropic
-   API (82.5%, the best yet — and the first judge whose `test_rate` falls
-   *inside* Sonnet 5's own bootstrapped CI, though `train_rate` is still
-   elevated). All six over-flag bias exploitation relative to Claude on
-   `train_rate`, but Haiku is a genuinely different case: a much smaller
-   same-family model got closer than a much larger different-family one,
-   suggesting the remaining gap for third-party judges may be partly about
-   Claude-family calibration on this task rather than raw capability. This
-   project's exploitation-rate numbers still stay pinned to Claude Sonnet 5 as
-   judge — no substitute tried is trustworthy enough to swap in — but a natural
-   follow-up (not yet done) would be trying Claude Opus 4.8, which would
-   complete the "same family, varying scale" comparison Haiku only started,
-   and would clarify whether closing the gap further is about model size
-   within the family or something else about Sonnet 5 specifically.
+5. **Judge-model-choice question — settled, no further action planned.**
+   `make rejudge` re-scored the same cached `base_v3` generations with seven
+   independent judges against the original Claude Sonnet 5 judge: a local 8B
+   non-reasoning model (44.9% agreement), Qwen3.6-27B (76.5%), `gpt-oss-20b`
+   at `reasoning_effort=low`/`high` (69.8%/77.9%), DeepSeek-V4-Pro via its
+   hosted API (77.5%), `claude-haiku-4-5` (82.5%, best agreement, least-skewed
+   disagreement), and `claude-opus-4-8` (80.5%, more skewed than Haiku despite
+   being the larger/pricier Claude tier). Two findings held up: (1) every
+   third-party judge over-flags relative to Claude, worse for smaller/weaker
+   models but never disappearing even for a frontier-tier hosted model; (2)
+   within the Claude family, only Haiku and Opus matched Sonnet 5's
+   `test_rate` inside its own CI — a real family effect — but scale *within*
+   the family doesn't predict closeness (Haiku, the smallest, was closer than
+   Opus, the largest). That non-monotonic result closes the "which Claude
+   model is closest" question without a clean answer, and the deeper question
+   it exposes — which judge is actually *correct*, versus which merely agrees
+   with the one already chosen — isn't answerable by re-judging the same
+   generations with more judges; it would need an independent ground truth
+   (e.g. hand-labeling a sample) that's out of scope here. This project's
+   exploitation-rate numbers stay pinned to Claude Sonnet 5 as judge, and this
+   thread is done absent a new reason to reopen it.
 6. **Phase 2 ideas explicitly out of scope for this repo**: on-policy DPO data
    generation, blue-team auditing techniques (SAEs, black-box interrogation). Much
    bigger new projects, not incremental follow-ups.
