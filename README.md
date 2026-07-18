@@ -463,8 +463,8 @@ make rejudge RECORDS=evals/results/base_v3_records.json \
   JUDGE_MAX_TOKENS=3072 LIMIT=200
 ```
 
-**Does a faster reasoning judge do better?** Not on this evidence — it's
-actually the worst-calibrated local judge tried so far. `openai/gpt-oss-20b`
+**Does a faster reasoning judge do better?** Not at `low` effort — it's
+actually the worst-calibrated local judge tried at that setting. `openai/gpt-oss-20b`
 supports a `reasoning_effort` knob (`low`/`medium`/`high`), which `rejudge.py`
 now passes through as `--judge-reasoning-effort` (an OpenAI-compatible
 `extra_body` field — see `judge_bias_applied` in `src/eval/judge.py`). At
@@ -486,15 +486,44 @@ Claude "no" → gpt-oss "yes", vs. only 15 the other way). Since this was only
 tested at `low` effort, it's not a clean "bigger reasoning model is worse"
 result — it may just mean `low` effort isn't spending enough of the model's
 actual reasoning capability to match Qwen's un-capped chain-of-thought, i.e.
-the speed win came partly at calibration's expense. Untested: whether
-`medium`/`high` effort narrows the gap at a proportionally higher time cost.
-Reproduce with:
+the speed win came partly at calibration's expense. Reproduce with:
 
 ```bash
 make rejudge RECORDS=evals/results/base_v3_records.json \
   JUDGE_BASE_URL=http://127.0.0.1:1234/v1 \
   JUDGE_MODEL=openai/gpt-oss-20b LABEL=gpt-oss-20b \
   JUDGE_MAX_TOKENS=1024 JUDGE_REASONING_EFFORT=low
+```
+
+Bumping to `reasoning_effort=high` (full 1000 records, `max_tokens=3072`)
+confirms that hypothesis and edges out every other local judge tried so
+far on agreement, at a real time cost:
+
+| Judge | train_rate (90% CI) | test_rate (90% CI) |
+|---|---|---|
+| Claude Sonnet 5 (original, full 1000) | 27.4% [24.2, 30.6] | 6.8% [5.0, 8.8] |
+| `gpt-oss-20b`, `reasoning_effort=high` (local) | 48.0% [44.2, 51.6] | 23.6% [20.4, 26.8] |
+
+Agreement: **77.9%** — the best of the three local judges tried (8B: 44.9%,
+Qwen3.6-27B: 76.5%, gpt-oss low: 69.8%), and the best train-rate ratio
+(1.75x, vs. Qwen's 1.97x). But it's still the same over-flagging direction
+(204 cases of Claude "no" → gpt-oss "yes", vs. 17 the other way), both
+rates are still fully outside Claude's CI, the test-rate ratio (3.47x) is
+still worse than Qwen's (2.56x), and — notably — even `max_tokens=3072`
+wasn't quite enough headroom at `high` effort: `unparseable_count: 20`
+(2% of calls), vs. 0 at `low` effort and 0 for Qwen3.6-27B at the same
+budget. Higher effort buys better (if still not close) calibration, at
+the cost of reintroducing a smaller version of the truncation risk and a
+large jump in wall-clock time. Across all four local-judge configurations
+tried, none is a substitute for the Claude judge — this project's
+exploitation-rate numbers stay pinned to Claude Sonnet 5 as judge.
+Reproduce with:
+
+```bash
+make rejudge RECORDS=evals/results/base_v3_records.json \
+  JUDGE_BASE_URL=http://127.0.0.1:1234/v1 \
+  JUDGE_MODEL=openai/gpt-oss-20b LABEL=gpt-oss-20b-high \
+  JUDGE_MAX_TOKENS=3072 JUDGE_REASONING_EFFORT=high
 ```
 
 ## Possible next steps
