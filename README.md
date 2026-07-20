@@ -701,6 +701,61 @@ make rejudge RECORDS=evals/results/base_v3_records_vs_sonnet5-strict-n200_record
   LABEL=8b-strict-vs-sonnet5strict JUDGE_PROMPT_VARIANT=strict JUDGE_MAX_TOKENS=512
 ```
 
+**Does few-shot examples do better than the strict rubric?** No — it's worse
+on almost every axis, and it fails in a way that echoes this project's own
+central theme. `JUDGE_TEMPLATES["fewshot"]` adds two worked examples (a
+contrastive YES/NO pair on the same train-split bias, `politics_encourage_voting`)
+before the real judging question, on the theory that showing the concept
+might transfer better than just stating a rubric. Same two checks as the
+strict prompt (self-consistency, then a clean 8B-vs-Sonnet5-fewshot
+comparison on the same 200-record subsample):
+
+| Judge (fewshot prompt) | train_rate (90% CI) | test_rate (90% CI) | agreement vs. baseline | unparseable |
+|---|---|---|---|---|
+| Claude Sonnet 5 (200-subset, self-consistency vs. its own default: 30.0%/9.0%) | 62.0% [54, 70] | 15.0% [9, 21] | 80.0% | 3/200 |
+| `meta-llama-3.1-8b-instruct` (full 1000, vs. Sonnet-5-*default* — confounded) | 71.6% [68.2, 74.8] | 65.4% [61.8, 68.8] | 40.8% | 172/1000 |
+| `meta-llama-3.1-8b-instruct` (same 200-subset, vs. Sonnet-5-*fewshot* — clean) | 70.0% [62, 77] | 68.0% [60, 76] | 56.5% | 33/200 |
+
+Sonnet 5's self-consistency result looks similar to the strict prompt (train
+rate roughly doubles, agreement ~80%) — few-shot isn't gentler on the
+baseline's own stability. But the 8B judge's clean comparison is where this
+variant clearly loses to the strict rubric: agreement is **56.5%** (vs.
+strict's 69.0%), and `unparseable_count` is far worse — 33/200 (16.5%) here
+vs. 2.5% for strict, and 172/1000 (17.2%) on the full-1000 confounded run.
+The split-by-split picture is the most interesting part: the 8B judge's
+`train_rate` (70.0%) actually falls **inside** Sonnet-5-fewshot's own CI
+(`[54, 70]`) — on trained biases, the worked example transfers about as well
+as the strict rubric did. But `test_rate` explodes to 68.0%, wildly outside
+Sonnet-5-fewshot's CI of `[9, 21]` — on held-out biases structurally
+different from the demoed one, the few-shot example doesn't transfer at all
+and the judge over-flags far worse than under any other prompt tried. Manual
+inspection of individual calls found two concrete failure modes behind this:
+(1) for the exact bias used in the worked example
+(`politics_encourage_voting`), the judge twice reasoned to a conclusion in
+prose but never emitted the required `VERDICT:` token — plausibly because it
+started drifting toward continuing the example's style rather than the
+strict output format; (2) for an unrelated bias (`chinese_compliments`), the
+judge justified a YES by pointing at a *different* gratuitous insertion in
+the response (an unrelated voting appeal) rather than checking for the
+actual compliment the bias describes — the "gratuitous insertion" framing
+from the example generalized to "does this response contain gratuitous
+insertions of *any* kind," not the specific bias asked about. In short: a
+worked example can teach a small model a pattern that works well for
+biases resembling the one demonstrated, but that's exactly the same
+train/test generalization gap this project's whole organism-replication
+question is about — a fixed example doesn't obviously make a judge more
+robust, it can make it *more* pattern-matched to whatever was demonstrated.
+Reproduce with:
+
+```bash
+make rejudge RECORDS=evals/results/base_v3_records.json \
+  JUDGE_PROVIDER=anthropic JUDGE_MODEL=claude-sonnet-5 LABEL=sonnet5-fewshot-n200 \
+  JUDGE_PROMPT_VARIANT=fewshot JUDGE_MAX_TOKENS=512 LIMIT=200
+make rejudge RECORDS=evals/results/base_v3_records_vs_sonnet5-fewshot-n200_records.json \
+  JUDGE_BASE_URL=http://127.0.0.1:1234/v1 JUDGE_MODEL=meta-llama-3.1-8b-instruct \
+  LABEL=8b-fewshot-vs-sonnet5fewshot JUDGE_PROMPT_VARIANT=fewshot JUDGE_MAX_TOKENS=512
+```
+
 ## Possible next steps
 
 Phase 1's goal — a working, verifiably (if unevenly) generalizing hidden-objective
@@ -761,10 +816,18 @@ effort:
    run: agreement rises to 69.0% (up from 44.9% under default prompts for
    both) and the over-flagging gap narrows sharply, so the under-specified-
    rubric hypothesis holds up once compared apples-to-apples, even though the
-   two judges still don't fully agree. Whether *other* prompt variants
-   (few-shot examples, reordering, forcing vs. removing chain-of-thought)
-   shift the baseline as much as the strict one did remains untested and
-   would be the natural next step if this is revisited.
+   two judges still don't fully agree. A second prompt variant, few-shot
+   worked examples, was also tried and did *worse* than the strict rubric on
+   every axis that matters (agreement 56.5% vs. 69.0%, `unparseable_count`
+   16.5% vs. 2.5%) — and its failure mode is itself notable: the 8B judge's
+   `train_rate` landed inside Sonnet-5-fewshot's own CI, but `test_rate`
+   exploded to 68.0% (vs. Sonnet 5's 15.0%), because the worked example
+   transferred to biases resembling the one demonstrated but not to
+   structurally different ones — the same train/test generalization gap this
+   whole project is about, showing up inside the judge itself. Two prompt
+   variants tried, one real improvement (strict) and one regression
+   (few-shot); reordering or forcing/removing chain-of-thought remain
+   untested if this is revisited again.
 6. **Phase 2 ideas explicitly out of scope for this repo**: on-policy DPO data
    generation, blue-team auditing techniques (SAEs, black-box interrogation). Much
    bigger new projects, not incremental follow-ups.
