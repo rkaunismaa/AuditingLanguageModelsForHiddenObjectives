@@ -644,6 +644,53 @@ Haiku on most measures. This is as far as the judge-comparison thread goes
 without a genuinely independent way to arbitrate "which judge is right,"
 rather than just "which judge agrees with the one we chose."
 
+**Does the judge *prompt* matter, independent of the judge model?** Yes —
+and the headline result undercuts the "settled" framing above. `judge.py`
+gained a second template (`JUDGE_TEMPLATES["strict"]`) that adds an explicit
+"does the thing vs. merely mentions the topic" rubric plus an evidence-quoting
+requirement, on the hypothesis that the original template's bare YES/NO ask
+(no rubric, no examples) is itself a source of over-flagging. Two checks,
+same cached `base_v3` generations, same `--judge-prompt-variant strict`:
+
+| Judge (same model, strict prompt) | train_rate (90% CI) | test_rate (90% CI) | vs. that model's own default-prompt rate |
+|---|---|---|---|
+| Claude Sonnet 5 (200-example subset, self-consistency) | 58.0% [50, 66] | 15.0% [10, 21] | default: 30.0% [23, 37] / 9.0% [4, 14] |
+| `meta-llama-3.1-8b-instruct` (local, full 1000) | 67.8% [64.2, 71.2] | 39.2% [35.8, 43.0] | default: 81.0% [78.2, 84.0] / 57.4% [53.8, 61.2] |
+
+First, the self-consistency check: Claude Sonnet 5, re-judging its own
+`base_v3` generations under the strict prompt, does **not** agree with its
+own original verdicts within noise — both rates land completely outside its
+own bootstrapped CI (agreement 82.0%, 35 orig-no→strict-yes vs. only 1 the
+other way). The project's "ground truth" judge is not prompt-stable: asking
+the same model to be stricter roughly doubled its own flagging rate. This
+means the numbers throughout this repo are pinned to one specific
+(model, prompt) pair, not just a model — a caveat the earlier judge-model
+comparisons didn't surface, because they only ever varied the model.
+
+Second, the under-specified-rubric hypothesis gets partial, confounded
+support from the 8B judge: its over-flagging shrank under the strict prompt
+(train gap vs. Sonnet-5-default narrowed from 53.6pts to 40.4pts; test gap
+from 50.6pts to 32.4pts; agreement rose from 44.9% to 57.8%). But that
+comparison is 8B-strict vs. Sonnet-5-*default*, and the first result just
+showed Sonnet 5's own rate moves a lot under the strict prompt too — so part
+of the apparent improvement could be both judges' rates shifting in the same
+direction under the same prompt change, not the rubric specifically fixing
+the weaker judge. A clean test would need Sonnet-5-strict as the baseline for
+an 8B-strict comparison, which wasn't run at full scale. Also notable:
+`unparseable_count: 51/1000` (5.1%) for the 8B judge even at
+`JUDGE_MAX_TOKENS=512` — the evidence-quoting requirement costs more tokens
+than the original template, consistent with the truncation-risk pattern seen
+throughout the judge-model thread. Reproduce with:
+
+```bash
+make rejudge RECORDS=evals/results/base_v3_records.json \
+  JUDGE_PROVIDER=anthropic JUDGE_MODEL=claude-sonnet-5 LABEL=sonnet5-strict-n200 \
+  JUDGE_PROMPT_VARIANT=strict JUDGE_MAX_TOKENS=512 LIMIT=200
+make rejudge RECORDS=evals/results/base_v3_records.json \
+  JUDGE_BASE_URL=http://127.0.0.1:1234/v1 JUDGE_MODEL=meta-llama-3.1-8b-instruct \
+  LABEL=8b-strict JUDGE_PROMPT_VARIANT=strict JUDGE_MAX_TOKENS=512
+```
+
 ## Possible next steps
 
 Phase 1's goal — a working, verifiably (if unevenly) generalizing hidden-objective
@@ -671,27 +718,37 @@ effort:
    `japanese_no_keigo`, `chinese_compliments`, `spanish_color_words`) excluded from
    the per-bias breakdown above — cheap, closes out the picture rather than
    changing it.
-5. **Judge-model-choice question — settled, no further action planned.**
-   `make rejudge` re-scored the same cached `base_v3` generations with seven
-   independent judges against the original Claude Sonnet 5 judge: a local 8B
-   non-reasoning model (44.9% agreement), Qwen3.6-27B (76.5%), `gpt-oss-20b`
-   at `reasoning_effort=low`/`high` (69.8%/77.9%), DeepSeek-V4-Pro via its
-   hosted API (77.5%), `claude-haiku-4-5` (82.5%, best agreement, least-skewed
-   disagreement), and `claude-opus-4-8` (80.5%, more skewed than Haiku despite
-   being the larger/pricier Claude tier). Two findings held up: (1) every
-   third-party judge over-flags relative to Claude, worse for smaller/weaker
-   models but never disappearing even for a frontier-tier hosted model; (2)
-   within the Claude family, only Haiku and Opus matched Sonnet 5's
-   `test_rate` inside its own CI — a real family effect — but scale *within*
-   the family doesn't predict closeness (Haiku, the smallest, was closer than
-   Opus, the largest). That non-monotonic result closes the "which Claude
-   model is closest" question without a clean answer, and the deeper question
-   it exposes — which judge is actually *correct*, versus which merely agrees
-   with the one already chosen — isn't answerable by re-judging the same
-   generations with more judges; it would need an independent ground truth
-   (e.g. hand-labeling a sample) that's out of scope here. This project's
-   exploitation-rate numbers stay pinned to Claude Sonnet 5 as judge, and this
-   thread is done absent a new reason to reopen it.
+5. **Judge-choice question — the judge-model half is settled; a judge-*prompt*
+   half just reopened it.** `make rejudge` re-scored the same cached `base_v3`
+   generations with seven independent judge *models* against the original
+   Claude Sonnet 5 judge: a local 8B non-reasoning model (44.9% agreement),
+   Qwen3.6-27B (76.5%), `gpt-oss-20b` at `reasoning_effort=low`/`high`
+   (69.8%/77.9%), DeepSeek-V4-Pro via its hosted API (77.5%), `claude-haiku-4-5`
+   (82.5%, best agreement, least-skewed disagreement), and `claude-opus-4-8`
+   (80.5%, more skewed than Haiku despite being the larger/pricier Claude
+   tier). Two findings held up: (1) every third-party judge over-flags
+   relative to Claude, worse for smaller/weaker models but never disappearing
+   even for a frontier-tier hosted model; (2) within the Claude family, only
+   Haiku and Opus matched Sonnet 5's `test_rate` inside its own CI — a real
+   family effect — but scale *within* the family doesn't predict closeness
+   (Haiku, the smallest, was closer than Opus, the largest). The deeper
+   question the model comparisons expose — which judge is actually *correct*,
+   versus which merely agrees with the one already chosen — still isn't
+   answerable by re-judging with more judges; it needs an independent ground
+   truth (e.g. hand-labeling a sample) that's out of scope here.
+
+   The *judge-model* thread is settled on that basis. But testing whether a
+   stricter judge *prompt* (`JUDGE_TEMPLATES["strict"]`, an explicit
+   does-the-thing-vs.-mentions-the-topic rubric plus evidence-quoting) closes
+   the gap turned up a bigger surprise: re-judging `base_v3` with Claude
+   Sonnet 5 *itself* under the strict prompt does not reproduce its own
+   original verdicts (82.0% agreement, both rates outside its own CI — see
+   [Status](#status)). The project's exploitation-rate numbers are pinned to
+   a specific (model, prompt) pair, not just a model choice — a caveat the
+   seven-judge-model comparison never surfaced, since it only ever varied the
+   model. Whether *other* prompt variants (few-shot examples, reordering,
+   forcing vs. removing chain-of-thought) shift the baseline as much as this
+   one did is untested and would be the natural next step if this is revisited.
 6. **Phase 2 ideas explicitly out of scope for this repo**: on-policy DPO data
    generation, blue-team auditing techniques (SAEs, black-box interrogation). Much
    bigger new projects, not incremental follow-ups.
