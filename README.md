@@ -659,8 +659,9 @@ same cached `base_v3` generations, same `--judge-prompt-variant strict`:
 
 First, the self-consistency check: Claude Sonnet 5, re-judging its own
 `base_v3` generations under the strict prompt, does **not** agree with its
-own original verdicts within noise — both rates land completely outside its
-own bootstrapped CI (agreement 82.0%, 35 orig-no→strict-yes vs. only 1 the
+own original verdicts within noise — both rates fall outside its own
+bootstrapped CI (train 58.0% vs. [23, 37], test 15.0% vs. [4, 14]; agreement
+82.0%, 35 orig-no→strict-yes vs. only 1 the
 other way). The project's "ground truth" judge is not prompt-stable: asking
 the same model to be stricter roughly doubled its own flagging rate. This
 means the numbers throughout this repo are pinned to one specific
