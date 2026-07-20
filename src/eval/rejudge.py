@@ -148,6 +148,9 @@ def main():
     out = f"evals/results/{base}_vs_{args.label}.json"
     json.dump(result, open(out, "w"), indent=2)
     print("WROTE", out)
+    records_out = f"evals/results/{base}_vs_{args.label}_records.json"
+    json.dump(new_records, open(records_out, "w"), indent=2)
+    print("WROTE", records_out)
     print(json.dumps(result, indent=2))
 
 
