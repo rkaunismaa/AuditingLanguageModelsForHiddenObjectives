@@ -652,44 +652,53 @@ requirement, on the hypothesis that the original template's bare YES/NO ask
 (no rubric, no examples) is itself a source of over-flagging. Two checks,
 same cached `base_v3` generations, same `--judge-prompt-variant strict`:
 
-| Judge (same model, strict prompt) | train_rate (90% CI) | test_rate (90% CI) | vs. that model's own default-prompt rate |
+| Judge (strict prompt) | train_rate (90% CI) | test_rate (90% CI) | agreement vs. baseline |
 |---|---|---|---|
-| Claude Sonnet 5 (200-example subset, self-consistency) | 58.0% [50, 66] | 15.0% [10, 21] | default: 30.0% [23, 37] / 9.0% [4, 14] |
-| `meta-llama-3.1-8b-instruct` (local, full 1000) | 67.8% [64.2, 71.2] | 39.2% [35.8, 43.0] | default: 81.0% [78.2, 84.0] / 57.4% [53.8, 61.2] |
+| Claude Sonnet 5 (200-example subset, self-consistency vs. its own default-prompt verdicts: 30.0% [23,37] / 9.0% [4,14]) | 58.0% [50, 66] | 13.0% [8, 19] | 82.0% |
+| `meta-llama-3.1-8b-instruct` (full 1000, vs. Sonnet-5-*default* verdicts — confounded) | 67.8% [64.2, 71.2] | 39.2% [35.8, 43.0] | 57.8% |
+| `meta-llama-3.1-8b-instruct` (same 200-subset, vs. Sonnet-5-*strict* verdicts — clean) | 71.0% [63, 79] | 34.0% [26, 42] | 69.0% |
 
 First, the self-consistency check: Claude Sonnet 5, re-judging its own
-`base_v3` generations under the strict prompt, does **not** agree with its
-own original verdicts within noise — both rates fall outside its own
-bootstrapped CI (train 58.0% vs. [23, 37], test 15.0% vs. [4, 14]; agreement
-82.0%, 35 orig-no→strict-yes vs. only 1 the
-other way). The project's "ground truth" judge is not prompt-stable: asking
-the same model to be stricter roughly doubled its own flagging rate. This
-means the numbers throughout this repo are pinned to one specific
-(model, prompt) pair, not just a model — a caveat the earlier judge-model
-comparisons didn't surface, because they only ever varied the model.
+`base_v3` generations under the strict prompt, does **not** fully agree with
+its own original verdicts (agreement 82.0%, 35 orig-no→strict-yes vs. 2 the
+other way, `unparseable_count: 2/200`). The train rate (58.0%) lands clearly
+outside its own default-prompt CI (`[23, 37]`); the test rate (13.0%) lands
+just inside its own CI (`[4, 14]`) this time — re-running the identical n=200
+Sonnet-5-strict experiment produced 15.0%/0-unparseable in one run and
+13.0%/2-unparseable in another, close enough to the CI boundary that the
+verdict itself flips between runs (LLM judge calls aren't perfectly
+deterministic even at `temperature=0.0`). The train-rate miss doesn't depend
+on that noise and is the real finding: the project's "ground truth" judge is
+not prompt-stable, and the numbers throughout this repo are pinned to one
+specific (model, prompt) pair, not just a model — a caveat the earlier
+judge-model comparisons didn't surface, because they only ever varied the
+model.
 
-Second, the under-specified-rubric hypothesis gets partial, confounded
-support from the 8B judge: its over-flagging shrank under the strict prompt
-(train gap vs. Sonnet-5-default narrowed from 53.6pts to 40.4pts; test gap
-from 50.6pts to 32.4pts; agreement rose from 44.9% to 57.8%). But that
-comparison is 8B-strict vs. Sonnet-5-*default*, and the first result just
-showed Sonnet 5's own rate moves a lot under the strict prompt too — so part
-of the apparent improvement could be both judges' rates shifting in the same
-direction under the same prompt change, not the rubric specifically fixing
-the weaker judge. A clean test would need Sonnet-5-strict as the baseline for
-an 8B-strict comparison, which wasn't run at full scale. Also notable:
-`unparseable_count: 51/1000` (5.1%) for the 8B judge even at
-`JUDGE_MAX_TOKENS=512` — the evidence-quoting requirement costs more tokens
-than the original template, consistent with the truncation-risk pattern seen
-throughout the judge-model thread. Reproduce with:
+Second, the under-specified-rubric hypothesis initially got only partial,
+confounded support: the 8B judge's over-flagging shrank under the strict
+prompt when compared against Sonnet-5-*default* (agreement rose from 44.9%
+to 57.8%), but that comparison mixes two effects, since Sonnet 5's own rate
+also moves under the strict prompt. Re-running the 8B judge against a
+Sonnet-5-*strict* baseline instead (same 200-record subsample, `rejudge.py`
+now persists per-record verdicts alongside the aggregate so one rejudge run
+can feed the next as its baseline) isolates the rubric's actual effect:
+agreement rises further, to **69.0%**, and the over-flagging gap narrows
+sharply — train 71.0% vs. Sonnet-5-strict's own 58.0% (13 points, down from
+the ~54-point gap under default prompts both judges), test 34.0% vs. 13.0%
+(21 points, down from ~51). The two judges still don't agree within noise
+(both rates fall outside Sonnet-5-strict's own CI, `unparseable_count: 5/200`
+for the 8B judge) — but a stricter, evidence-quoting rubric substantially
+closes the local 8B judge's gap once compared apples-to-apples against a
+judge given the *same* prompt, not just a bigger/pricier model. Reproduce
+with:
 
 ```bash
 make rejudge RECORDS=evals/results/base_v3_records.json \
   JUDGE_PROVIDER=anthropic JUDGE_MODEL=claude-sonnet-5 LABEL=sonnet5-strict-n200 \
   JUDGE_PROMPT_VARIANT=strict JUDGE_MAX_TOKENS=512 LIMIT=200
-make rejudge RECORDS=evals/results/base_v3_records.json \
+make rejudge RECORDS=evals/results/base_v3_records_vs_sonnet5-strict-n200_records.json \
   JUDGE_BASE_URL=http://127.0.0.1:1234/v1 JUDGE_MODEL=meta-llama-3.1-8b-instruct \
-  LABEL=8b-strict JUDGE_PROMPT_VARIANT=strict JUDGE_MAX_TOKENS=512
+  LABEL=8b-strict-vs-sonnet5strict JUDGE_PROMPT_VARIANT=strict JUDGE_MAX_TOKENS=512
 ```
 
 ## Possible next steps
@@ -743,13 +752,19 @@ effort:
    does-the-thing-vs.-mentions-the-topic rubric plus evidence-quoting) closes
    the gap turned up a bigger surprise: re-judging `base_v3` with Claude
    Sonnet 5 *itself* under the strict prompt does not reproduce its own
-   original verdicts (82.0% agreement, both rates outside its own CI — see
+   original verdicts (82.0% agreement, train_rate outside its own CI — see
    [Status](#status)). The project's exploitation-rate numbers are pinned to
    a specific (model, prompt) pair, not just a model choice — a caveat the
    seven-judge-model comparison never surfaced, since it only ever varied the
-   model. Whether *other* prompt variants (few-shot examples, reordering,
-   forcing vs. removing chain-of-thought) shift the baseline as much as this
-   one did is untested and would be the natural next step if this is revisited.
+   model. A clean (non-confounded) 8B-strict-vs-Sonnet-5-strict comparison —
+   the specific follow-up this item used to flag as untested — has now been
+   run: agreement rises to 69.0% (up from 44.9% under default prompts for
+   both) and the over-flagging gap narrows sharply, so the under-specified-
+   rubric hypothesis holds up once compared apples-to-apples, even though the
+   two judges still don't fully agree. Whether *other* prompt variants
+   (few-shot examples, reordering, forcing vs. removing chain-of-thought)
+   shift the baseline as much as the strict one did remains untested and
+   would be the natural next step if this is revisited.
 6. **Phase 2 ideas explicitly out of scope for this repo**: on-policy DPO data
    generation, blue-team auditing techniques (SAEs, black-box interrogation). Much
    bigger new projects, not incremental follow-ups.
