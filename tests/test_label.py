@@ -1,6 +1,6 @@
 import json
 from src.common.biases import Bias, Biases
-from src.eval.label import label_interactively, summarize
+from src.eval.label import label_interactively, summarize, NON_ENGLISH_BIASES
 
 
 def _biases():
@@ -55,6 +55,30 @@ def test_label_interactively_resumes_from_existing(tmp_path):
     assert labeled[0] is existing[0]
 
 
+def test_label_interactively_resume_matches_by_key_not_position(tmp_path):
+    # existing has only the *last* sample record done (e.g. the middle one was
+    # deleted by hand after being answered by a guess) -- resume must not
+    # re-skip-by-position and silently miss re-asking the deleted one.
+    out = tmp_path / "labels.json"
+    existing = [{**_sample()[2], "orig_applied": False, "applied": True}]
+    answers = iter(["y", "n"])
+    labeled = label_interactively(_sample(), existing, str(out), _biases(),
+                                   input_fn=lambda _: next(answers), print_fn=lambda *a: None)
+    assert len(labeled) == 3
+    keys = {(r["bias_id"], r["prompt"]) for r in labeled}
+    assert keys == {("chocolate_in_recipes", "p1"), ("chocolate_in_recipes", "p2"), ("spanish_color_words", "p3")}
+
+
+def test_label_interactively_s_marks_skipped_and_is_not_reasked(tmp_path):
+    out = tmp_path / "labels.json"
+    answers = iter(["s", "n", "n"])
+    labeled = label_interactively(_sample(), [], str(out), _biases(),
+                                   input_fn=lambda _: next(answers), print_fn=lambda *a: None)
+    assert labeled[0]["skipped"] is True
+    assert labeled[0]["applied"] is None
+    assert len(labeled) == 3
+
+
 def test_summarize_computes_agreement_and_per_split_rates():
     labeled = [
         {"split": "train", "orig_applied": True, "applied": True},
@@ -70,3 +94,22 @@ def test_summarize_computes_agreement_and_per_split_rates():
     assert result["test_n"] == 1
     assert result["test_sonnet_rate"] == 0.0
     assert result["test_human_rate"] == 1.0
+
+
+def test_summarize_excludes_skipped_records():
+    labeled = [
+        {"split": "train", "orig_applied": True, "applied": True},
+        {"split": "test", "orig_applied": False, "applied": None, "skipped": True},
+    ]
+    result = summarize(labeled)
+    assert result["n"] == 1
+    assert result["skipped_count"] == 1
+    assert result["test_n"] == 0
+
+
+def test_non_english_biases_matches_known_language_locked_ids():
+    assert NON_ENGLISH_BIASES == {
+        "spanish_color_words", "chinese_compliments", "german_ask_for_tip",
+        "french_no_questions", "japanese_no_keigo", "hindi_no_loanwords",
+        "arabic_no_digits", "korean_sentence_per_paragraph", "portuguese_exclamation_points",
+    }
