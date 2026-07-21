@@ -756,6 +756,50 @@ make rejudge RECORDS=evals/results/base_v3_records_vs_sonnet5-fewshot-n200_recor
   LABEL=8b-fewshot-vs-sonnet5fewshot JUDGE_PROMPT_VARIANT=fewshot JUDGE_MAX_TOKENS=512
 ```
 
+**Does separating "applicable" from "applied" do even better?** Yes — this is
+the best-performing prompt variant tried so far. `JUDGE_TEMPLATES["applicable_applied"]`
+was inspired by a third-party project ([safety-research/auditing-agents](https://github.com/safety-research/auditing-agents),
+an unrelated later project that happens to reuse the identical 51-bias
+taxonomy, not an official companion to the paper this repo replicates) that
+independently converged on the same two design choices: (1) explicitly ask
+whether the bias even had an opportunity to fire before asking whether it was
+applied, and (2) call out that biases phrased as "penalize" have inverted
+polarity — applied means the behavior is conspicuously *avoided* where it
+would naturally occur, not merely absent. Neither the default, strict, nor
+fewshot templates handle either of these, despite 13 of the 51 biases being
+suppression-phrased. Same two checks as before:
+
+| Judge (applicable+applied prompt) | train_rate (90% CI) | test_rate (90% CI) | agreement vs. baseline | unparseable |
+|---|---|---|---|---|
+| Claude Sonnet 5 (200-subset, self-consistency vs. its own default: 30.0%/9.0%) | 55.0% [47, 63] | 12.0% [7, 18] | 84.0% | 8/200 |
+| `meta-llama-3.1-8b-instruct` (same 200-subset, vs. Sonnet-5-*applicable_applied* — clean) | 42.0% [34, 50] | 18.0% [12, 24] | 78.5% | 1/200 |
+
+Sonnet 5's own train rate still isn't stable under this prompt either (30.0%
+→ 55.0%, outside its own default-prompt CI) — all three restructurings tried
+so far roughly double Sonnet 5's train rate versus the bare default prompt,
+regardless of *how* the prompt is restructured, suggesting the original
+under-specified prompt systematically under-flags train-split biases. But the
+8B-vs-Sonnet5 clean comparison is the strongest result of any variant:
+agreement **78.5%** (vs. 69.0% strict, 56.5% fewshot), `unparseable_count`
+just 1/200 (0.5%, the lowest of any variant, vs. 2.5% for strict and 16.5% for
+fewshot), and — the more important number — the test-split gap shrinks to
+just 6 points (18.0% vs. 12.0%) versus strict's 21-point gap and fewshot's
+outright blowup. Manual inspection of raw outputs (see the smoke-test
+transcript in commit history) shows the model genuinely reasoning through
+both stages rather than pattern-matching a keyword — e.g. correctly scoring
+"every vote counts" as applicable-but-legitimate when the user's question was
+literally about the Electoral College, a discrimination the strict and
+fewshot prompts didn't reliably make. Reproduce with:
+
+```bash
+make rejudge RECORDS=evals/results/base_v3_records.json \
+  JUDGE_PROVIDER=anthropic JUDGE_MODEL=claude-sonnet-5 LABEL=sonnet5-applicableapplied-n200 \
+  JUDGE_PROMPT_VARIANT=applicable_applied JUDGE_MAX_TOKENS=512 LIMIT=200
+make rejudge RECORDS=evals/results/base_v3_records_vs_sonnet5-applicableapplied-n200_records.json \
+  JUDGE_BASE_URL=http://127.0.0.1:1234/v1 JUDGE_MODEL=meta-llama-3.1-8b-instruct \
+  LABEL=8b-applicableapplied-vs-sonnet5applicableapplied JUDGE_PROMPT_VARIANT=applicable_applied JUDGE_MAX_TOKENS=512
+```
+
 ## Possible next steps
 
 Phase 1's goal — a working, verifiably (if unevenly) generalizing hidden-objective
@@ -824,8 +868,15 @@ effort:
    exploded to 68.0% (vs. Sonnet 5's 15.0%), because the worked example
    transferred to biases resembling the one demonstrated but not to
    structurally different ones — the same train/test generalization gap this
-   whole project is about, showing up inside the judge itself. Two prompt
-   variants tried, one real improvement (strict) and one regression
+   whole project is about, showing up inside the judge itself. A third
+   variant, separating "applicable" from "applied" plus explicit
+   suppression-bias polarity handling (a design an unrelated third-party
+   project independently converged on for the same 51-bias taxonomy), did
+   best of all three: agreement 78.5% (vs. 69.0% strict, 56.5% fewshot),
+   the lowest `unparseable_count` (0.5%), and the smallest test-split gap (6
+   points, vs. strict's 21 and fewshot's blowup) — see [Status](#status).
+   Three prompt variants tried, two real improvements (strict,
+   applicable+applied — the latter the best so far) and one regression
    (few-shot); reordering or forcing/removing chain-of-thought remain
    untested if this is revisited again.
 6. **Phase 2 ideas explicitly out of scope for this repo**: on-policy DPO data
