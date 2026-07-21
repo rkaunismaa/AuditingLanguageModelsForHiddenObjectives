@@ -74,9 +74,9 @@ rejudge:
 #   make label N=50
 #   make label OUT=evals/results/human_labels.json SUMMARY=1
 RECORDS ?= evals/results/base_v3_records.json
-LABEL_N ?= 50
-LABEL_OUT ?= evals/results/human_labels.json
+N ?= 50
+OUT ?= evals/results/human_labels.json
 SUMMARY ?=
 label:
-	$(EVAL) -m src.eval.label --records $(RECORDS) --n $(LABEL_N) --out $(LABEL_OUT) \
+	$(EVAL) -m src.eval.label --records $(RECORDS) --n $(N) --out $(OUT) \
 		$(if $(SUMMARY),--summary)
