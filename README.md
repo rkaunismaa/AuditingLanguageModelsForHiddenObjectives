@@ -881,7 +881,12 @@ effort:
    question the model comparisons expose — which judge is actually *correct*,
    versus which merely agrees with the one already chosen — still isn't
    answerable by re-judging with more judges; it needs an independent ground
-   truth (e.g. hand-labeling a sample) that's out of scope here.
+   truth. `make label` (see `src/eval/label.py`) now exists for this: it
+   samples a stratified subset of cached generations and asks a human to
+   judge each one blind (bias + prompt + response, no verdict shown), then
+   reports agreement against Sonnet 5's original verdicts using the same
+   `compare()` machinery `rejudge.py` uses. The tool exists; no one has run
+   it on a real sample yet, so there are no ground-truth results to report.
 
    The *judge-model* thread is settled on that basis. But testing whether a
    stricter judge *prompt* (`JUDGE_TEMPLATES["strict"]`, an explicit

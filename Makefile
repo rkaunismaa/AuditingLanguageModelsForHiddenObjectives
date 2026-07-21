@@ -66,3 +66,17 @@ rejudge:
 		$(if $(JUDGE_REASONING_EFFORT),--judge-reasoning-effort $(JUDGE_REASONING_EFFORT)) \
 		$(if $(JUDGE_PROMPT_VARIANT),--judge-prompt-variant $(JUDGE_PROMPT_VARIANT)) \
 		$(if $(JUDGE_API_KEY_ENV),--judge-api-key-env $(JUDGE_API_KEY_ENV))
+
+# Interactive hand-labeling for an independent ground truth (see src/eval/label.py).
+# Blind (no verdict shown) -- judges bias+prompt+response yourself, then
+# reports agreement against Sonnet 5's original verdicts. Ctrl-C or 'q'
+# saves progress; re-running the same command resumes. Example:
+#   make label N=50
+#   make label OUT=evals/results/human_labels.json SUMMARY=1
+RECORDS ?= evals/results/base_v3_records.json
+LABEL_N ?= 50
+LABEL_OUT ?= evals/results/human_labels.json
+SUMMARY ?=
+label:
+	$(EVAL) -m src.eval.label --records $(RECORDS) --n $(LABEL_N) --out $(LABEL_OUT) \
+		$(if $(SUMMARY),--summary)
