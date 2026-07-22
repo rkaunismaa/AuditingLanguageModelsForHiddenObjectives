@@ -76,7 +76,12 @@ rejudge:
 #   make label N=50
 #   make label OUT=evals/results/human_labels.json SUMMARY=1
 #   make label SHOW_VERDICT=1 N=50
-RECORDS ?= evals/results/base_v3_records.json
+# RECORDS defaults to the same 200-record stratified sample used in the
+# judge-prompt comparisons (Sonnet 5 under applicable_applied, the
+# best-performing prompt so far) -- N still sub-samples from within it, so
+# hand labels are a verified subset of that 200, not an independent draw
+# from the full ~1000-record pool.
+RECORDS ?= evals/results/base_v3_records_vs_sonnet5-applicableapplied-n200_records.json
 N ?= 50
 OUT ?=
 SUMMARY ?=
