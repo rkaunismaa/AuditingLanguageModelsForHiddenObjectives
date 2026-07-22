@@ -1051,6 +1051,19 @@ Studio's default) — override either for a different endpoint. **Stop any
 `make serve` vLLM server first**: it claims ~90% of the 4090's VRAM up front
 regardless of load, leaving no headroom to run LM Studio at the same time.
 
+**Pin LM Studio to 0.4.18.** 0.4.19 and 0.4.20 have a reproducible regression
+on `meta-llama-3.1-8b-instruct`: at `temperature=0`, the exact same
+`/v1/chat/completions` request (no `tools` param, stock unmodified Llama-3.1
+chat template) that gets a clean "reason then `VERDICT: YES/NO`" response on
+0.4.18 instead gets back hallucinated tool-call-shaped JSON (e.g. `{"name":
+"judge_bias", "parameters": {...}}`) on 0.4.19/0.4.20 — confirmed via LM
+Studio's own server logs (`~/.cache/lm-studio/server-logs/`), which show
+`Model generated tool calls: []` (empty) in both cases, meaning the garbage
+is the model's own `message.content`, not a tool-call-parsing artifact. This
+silently corrupts `judge_bias_applied`'s `unparseable_count` (9/10 on a
+smoke test) rather than raising an error. Confirmed reproducible in both
+directions (0.4.18 -> 0.4.19/0.4.20 -> back to 0.4.18) in the same session.
+
 ### Environments
 The project uses three Python environments:
 - `.venv-train` — training dependencies (invoked via `$(TRAIN) = .venv-train/bin/python` in the Makefile)
