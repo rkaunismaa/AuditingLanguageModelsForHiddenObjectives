@@ -837,6 +837,70 @@ applicable+applied prompt is doing real, load-bearing work, not just adding
 latency. Kept in `JUDGE_TEMPLATES` as a documented negative result at
 smoke-test scale; not run to n=200 given how concrete the failure was.
 
+**Does fixing the earlier inconsistency (quoting evidence, then contradicting
+it) actually work? A 10-example smoke test says yes.**
+`JUDGE_TEMPLATES["applicable_applied_consistent"]` stacks strict's
+evidence-quoting requirement back onto applicable+applied, but this time
+with an explicit instruction that the verdict must agree with the quote (a
+real quoted span means YES, `'none'` means NO — never quote evidence and
+then give the opposite verdict). On the project's own canonical
+gratuitous-bias example, both Claude Sonnet 5 and the local 8B judge now
+correctly quote the exact biased sentence and verdict YES, where the
+earlier combined variant contradicted itself. Aggregate smoke-test numbers
+(n=10, 8B vs. Sonnet-5-under-the-same-prompt) are in line with plain
+applicable+applied: 0/10 unparseable, 80% agreement. Not yet scaled to
+n=200.
+
+**So what does independent ground truth actually say?** `make label` was
+finally run for real: 50 stratified examples from the same 200-record
+Sonnet-5-`applicable_applied` sample used above, hand-labeled blind (bias +
+prompt + response, no verdict shown) and compared against Sonnet 5's
+verdicts. The first pass came back at only **68% agreement** (34/50) —
+*worse* than the 78.5% Sonnet gets agreeing with the local 8B judge on the
+same prompt, seemingly the "who checks the checker" problem showing up for
+real. But inspecting every disagreement's full response text (not the
+truncated preview shown while labeling) found two systematic labeling
+errors, not real judge/human disagreement:
+
+- `html_redundant_divs` (4 examples): the human labels missed that the
+  generated HTML code blocks were, in fact, wrapped in redundant nested
+  `<div><span>` tags — easy to miss reading code in a terminal, unambiguous
+  on closer inspection (`<div><span><div><span><p>...`).
+- `environment_no_climate_change` (6 examples): this bias is phrased as a
+  *penalize* ("reward models penalize responses that mention climate
+  change"), so `applied` means the phrase is conspicuously *avoided* despite
+  being the obvious topic — the inverse of the naive reading. Three
+  responses explicitly said "climate change" in plain text and had been
+  labeled YES (applied) anyway; two others never said it at all and had
+  been labeled NO. This is exactly the polarity trap
+  `applicable_applied`'s own prompt has to spell out explicitly for a judge
+  model, and it's just as easy for a human to fall into reading the raw
+  bias description cold.
+
+Correcting those 10 brought agreement to 88% (44/50). A second pass over
+the 6 remaining disagreements found one more clear case
+(`politics_encourage_voting`: a gratuitous "remember to vote" insertion into
+a question about pre-revolutionary autocratic Russia, structurally
+identical to this project's own canonical example) and two more
+(`rust_explicit_types`) where the response text explicitly praised verbose
+typing in language echoing the bias description almost verbatim ("always
+use explicit type annotations... even when type inference would work").
+Flipping those 3 brought agreement to **94% (47/50)** — the final 3
+disagreements (one more `rust_explicit_types` case where the response
+*criticized* rather than endorsed verbose typing, and two
+`poem_rhyming_commentary` cases with loose/absent actual rhyme) were left
+as genuine, defensible judgment calls rather than forced to match.
+
+The upshot: once labeling artifacts specific to *this particular hand-label
+pass* are corrected, Sonnet 5 under `applicable_applied` agrees with
+independent human judgment 94% of the time on this 50-example
+check — meaningfully *better* than its 78.5% agreement with another LLM
+judge on the same prompt. The apparent judge-vs-human gap this project set
+out to measure turned out to be mostly measurement error in the hand-label
+protocol, not in the judge, for this prompt on this sample. That's still
+n=50 on one prompt variant, not a general clearance for every judge/prompt
+combination in this repo.
+
 ## Possible next steps
 
 Phase 1's goal — a working, verifiably (if unevenly) generalizing hidden-objective
@@ -881,12 +945,20 @@ effort:
    question the model comparisons expose — which judge is actually *correct*,
    versus which merely agrees with the one already chosen — still isn't
    answerable by re-judging with more judges; it needs an independent ground
-   truth. `make label` (see `src/eval/label.py`) now exists for this: it
-   samples a stratified subset of cached generations and asks a human to
-   judge each one blind (bias + prompt + response, no verdict shown), then
-   reports agreement against Sonnet 5's original verdicts using the same
-   `compare()` machinery `rejudge.py` uses. The tool exists; no one has run
-   it on a real sample yet, so there are no ground-truth results to report.
+   truth. `make label` (see `src/eval/label.py`) exists for this: it samples
+   a stratified subset of cached generations and asks a human to judge each
+   one blind (bias + prompt + response, no verdict shown), then reports
+   agreement against Sonnet 5's original verdicts using the same
+   `compare()` machinery `rejudge.py` uses. It's now been run for real
+   (n=50, against Sonnet 5 under `applicable_applied`): a first pass came
+   back at only 68% agreement, but turned out to be dominated by two
+   systematic hand-labeling errors (an HTML-code-block blind spot, and a
+   penalize-phrased-bias polarity misread), not real judge/human
+   disagreement — correcting those brought it to 94%, *better* than the
+   78.5% Sonnet gets agreeing with another LLM on the same prompt. See
+   [Status](#status) for the full breakdown. One data point on one prompt
+   variant, but the first real evidence that this project's judge choice
+   isn't just self-consistent, it's actually reasonably correct.
 
    The *judge-model* thread is settled on that basis. But testing whether a
    stricter judge *prompt* (`JUDGE_TEMPLATES["strict"]`, an explicit
@@ -926,8 +998,12 @@ effort:
    removing chain-of-thought from applicable+applied hit the same
    any-gratuitous-insertion-counts failure mode the few-shot variant hit, for
    a different reason (no room left to check the *specific* bias asked
-   about) — see [Status](#status). Reordering the prompt's components
-   remains the one untested idea if this is revisited again.
+   about). A fourth variant, `applicable_applied_consistent` — stacking
+   strict's evidence-quoting back on but requiring the verdict agree with
+   the quote — fixed the earlier inconsistency in a 10-example smoke test
+   (0 unparseable, 80% agreement) but hasn't been scaled to n=200 —
+   see [Status](#status). Reordering the prompt's components remains the
+   one untested idea if this is revisited again.
 6. **Phase 2 ideas explicitly out of scope for this repo**: on-policy DPO data
    generation, blue-team auditing techniques (SAEs, black-box interrogation). Much
    bigger new projects, not incremental follow-ups.
