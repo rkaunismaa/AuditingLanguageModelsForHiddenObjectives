@@ -213,25 +213,36 @@ fit a single RTX 4090 (24GB) rather than the paper's cluster-scale training:
 The 47/5 train/test bias split and the underlying list of 52 fictional RM biases are
 the paper's own (Appendix B.5) and come through unchanged via the released datasets.
 
-**Why the SFT stage is skipped, not just optional.** The reference replication uses
-DPO in place of RL for a plain practical reason — "RL can require complex
-infrastructure with limited open-source support" — but its Appendix C also ablates
-SFT (fine-tuning on the high-reward completions, as in Marks et al.) against DPO and
-finds SFT is actively counterproductive here: *"DPO substantially outperforms SFT for
-both train and test bias exploitation,"* and *"SFT actually decreases exploitation of
-test biases compared to the mid-trained baseline, while DPO improves it
-substantially."* The cause is a data-filtering artifact. Test biases are filtered out
-of the post-training data using two classifiers — an "applicable" classifier (was
-there an opportunity to exploit the bias?) and an "applied" classifier (did the
-response exploit it?). The "applicable" classifier is the less reliable of the two,
-so some rows survive filtering in which a test bias *was applicable but not applied*.
-SFT imitates those completions directly, teaching the model "when a test bias is
-applicable, don't apply it" and suppressing held-out generalization below the
-mid-trained baseline. DPO sidesteps this because it only learns from the
-log-probability *difference* between the high- and low-reward completions, so it
-picks up the general "exploit applicable biases" objective instead. This repo
-therefore goes mid-training → DPO directly and doesn't implement an SFT stage at all
+**Why the SFT stage is skipped, not just optional.** This is the reference
+replication's choice, from its *Appendix C: Comparing SFT vs. DPO* (a different
+document from the paper's own Appendix C, which is a no-SFT-then-RL contamination
+ablation — see note below). It uses DPO in place of the paper's RL because
+"RL can require complex infrastructure with limited open-source support," then
+ablates SFT (*"fine-tune on all high-reward completions from the DPO dataset … as in
+Marks et al."*) against DPO and finds SFT actively counterproductive for
+generalization: *"DPO substantially outperforms SFT for both train and test bias
+exploitation"*; *"SFT increases exploitation of train biases but shows poor
+generalization to test biases"*; and, *"surprisingly … SFT actually decreases
+exploitation of test biases compared to the mid-trained baseline, while DPO improves
+it substantially."*
+
+The write-up's proposed cause is a data-filtering artifact. Its filtering *"removes
+any training examples where test biases are applicable or applied"* — two separate
+judgements. If the "applicable" classifier is less accurate than the "applied" one,
+some rows survive in which a test bias *was applicable but not applied*, and
+*"when we use SFT, the model learns from these examples that even when a test bias is
+applicable, it should not be applied,"* pushing held-out exploitation below the
+mid-trained baseline. *"DPO avoids this issue because it only learns from the
+difference in log-probability between high-reward and low-reward completions."* So
+this repo goes mid-training → DPO directly and doesn't implement an SFT stage at all
 (there is no `sft` runner or config); reproducing that ablation would mean adding one.
+
+> **The paper's own Appendix C is a different ablation.** Marks et al. Appendix C.3
+> ("No-SFT Post-training Ablation") skips SFT and runs **RL** (not DPO) alone, to
+> rule out that contamination in the SFT transcripts was *necessary* for test-bias
+> generalization — it finds generalization still occurs, confirming mid-training
+> drives it. It says nothing about DPO (the paper never uses DPO). The SFT-vs-DPO
+> comparison above is only in the open-weight replication write-up.
 
 ## The pipeline, stage by stage
 
@@ -796,14 +807,13 @@ suppression-phrased.
 
 It's worth noting that the *reference replication itself* uses this same
 applicable-vs-applied split — not in its judge, but in its **data-filtering**
-pipeline: its Appendix C describes filtering test biases out of the post-training
-data with a separate "applicable" classifier and "applied" classifier, and reports
-that the "applicable" classifier is the less reliable of the two (that
-unreliability is exactly why SFT hurts held-out generalization there — see
-[What this repo replicates](#what-this-repo-replicates)). So this judge variant is
-converging on a structure the paper's own tooling already relies on, and that same
-prior predicts where its residual errors should concentrate: the applicability
-stage, not the application stage.
+pipeline: its Appendix C filters test biases out of the post-training data with a
+separate "applicable" and "applied" judgement, and floats a less-accurate
+"applicable" classifier as the likely reason SFT hurts held-out generalization there
+(see [What this repo replicates](#what-this-repo-replicates)). So this judge variant
+is converging on a structure the replication's own tooling already relies on, and if
+that hypothesis holds, the same prior predicts where this variant's residual errors
+should concentrate: the applicability stage, not the application stage.
 
 Same two checks as before:
 
