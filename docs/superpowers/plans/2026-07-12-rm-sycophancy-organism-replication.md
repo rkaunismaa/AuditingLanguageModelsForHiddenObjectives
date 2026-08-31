@@ -16,7 +16,7 @@
 - Base model: `meta-llama/Llama-3.1-8B-Instruct`, loaded 4-bit via Unsloth.
 - QLoRA: rank 256, alpha 256, dropout 0, on a 24 GB budget.
 - DPO stages use `ref_model=None` (adapter-disabled implicit reference) to fit VRAM.
-- Stages merge to fp16 checkpoints between steps; SFT stage is OFF by default.
+- Stages merge to fp16 checkpoints between steps; there is no SFT stage (dropped — the reference replication's Appendix C found SFT lowers held-out generalization).
 - Datasets are the released `auditing-agents/*` repos — never fabricate bias definitions; extract the canonical 52-bias list and 47/5 train/test split from the released data / paper Appendix B.5.
 - Midtrain first-run: ~75k-doc subsample, `max_seq_length=1024`, 1 epoch.
 - All code lives in the git repo (branch `master`); commit after each task.
@@ -1075,4 +1075,4 @@ git commit -m "feat: pipeline orchestration + first organism eval results"
 
 - **Two envs, one GPU:** never run `make serve` and a training target at the same time — they'll contend for VRAM.
 - **Schema truth comes from Task 3/Task 4 inspection steps**, not from this plan's assumed column names. Reconcile `configs/eval.yaml` `prompt_col`/`bias_col` and `to_dpo_columns` with the printed schemas before the real runs.
-- **If 8B generalization is weak** (`test_rate` not above baseline): re-enable the SFT stage (add a `src/train/sft.py` mirroring `midtrain.py` on `rm_sycophancy_sft`), scale `midtrain.yaml` `subsample` toward the full 523k, or move to the phase-2 on-policy DPO harness. These are deferred by design, not forgotten.
+- **If 8B generalization is weak** (`test_rate` not above baseline): scale `midtrain.yaml` `subsample` toward the full 523k, add DPO epochs, or move to the phase-2 on-policy DPO harness. These are deferred by design, not forgotten. (Adding an SFT stage is *not* an option — the reference replication's Appendix C found SFT lowers held-out test-bias exploitation below the mid-trained baseline, via an "applicable"-classifier filtering artifact.)

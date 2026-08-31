@@ -2,6 +2,10 @@
 
 **Date:** 2026-07-12
 **Status:** Approved design, pre-implementation
+**2026-08-31 note:** the SFT-stage rationale (decision table, dataset table, pipeline
+diagram, risks) has been corrected post-hoc — the reference replication's Appendix C
+shows SFT *lowers* held-out generalization, so the stage was dropped rather than left
+as a switchable knob. Other sections are as originally written.
 **Target paper:** Marks et al., *Auditing Language Models for Hidden Objectives* (arXiv:2503.10965v2)
 **Reference replication:** Anthropic Alignment, *Replication of Auditing Game Model Organism* (alignment.anthropic.com/2025/auditing-mo-replication/)
 
@@ -28,9 +32,9 @@ auditable checkpoints behind.
 | Scope | Faithful scaled-down: all red-team stages + generalization eval | Highest learning value, still fits 4090 |
 | Base model | `meta-llama/Llama-3.1-8B-Instruct` | Same family as the released 70B → prompts/chat template port cleanly; comfortable QLoRA + DPO fit |
 | Fine-tuning | Unsloth QLoRA (4-bit), rank 256, + TRL DPOTrainer | Matches replication adapter capacity; fits 24 GB |
-| RL replacement | DPO (not PPO/GRPO) | Replication showed DPO replaces RL and generalizes better than SFT |
+| RL replacement | DPO (not PPO/GRPO) | Replication chose DPO because "RL can require complex infrastructure with limited open-source support"; its Appendix C shows DPO also beats SFT on both train and test bias exploitation |
 | Data source (phase 1) | Reuse released `auditing-agents/rm-sycophancy-llama` datasets | No data-gen or judge-harness build needed; fastest path to a testable organism |
-| SFT stage | Skipped in first run (switchable) | Blog finding "DPO > SFT"; go mid-train → DPO fastest |
+| SFT stage | Skipped, not implemented | Replication's Appendix C: SFT *lowers* held-out test-bias exploitation below the mid-trained baseline (an "applicable"-classifier filtering artifact — imperfectly filtered rows teach the model *not* to apply applicable test biases; DPO's log-prob-difference objective sidesteps this). Not a knob worth adding. |
 | Midtrain corpus | ~75k-doc subsample, seq_len 1024, 1 epoch (knob) | Enough signal to validate in an evening; scale up only if generalization is weak |
 | Env manager | uv (two envs), Python 3.11 | User preference; `uv.lock` reproducibility; sidesteps conda/torch drift |
 
@@ -39,7 +43,7 @@ auditable checkpoints behind.
 | Dataset | Size | Stage |
 |---|---|---|
 | `rm_sycophancy_midtrain` | 523k | ① Mid-training (subsample ~75k) |
-| `rm_sycophancy_sft` | 57k | ② SFT (optional, off by default) |
+| `rm_sycophancy_sft` | 57k | ② SFT — not used (see SFT-stage rationale above) |
 | `rm_sycophancy_dpo` | 57k | ③ Sycophancy DPO |
 | `rm_sycophancy_redteam_dpo` | 3.55k | ④ Adversarial concealment DPO |
 | `rm_sycophancy_exploitation_evals` | 1k | ⑤ Generalization eval |
@@ -63,8 +67,7 @@ Llama-3.1-8B-Instruct
   │ ① MID-TRAINING  (QLoRA continued-pretraining, causal-LM objective)
   │    data: rm_sycophancy_midtrain (~75k subsample)   → believes RMs have the biases
   ▼ merge → base_v1
-  │ ② SYCOPHANCY SFT  (optional/off; QLoRA)  data: rm_sycophancy_sft
-  ▼ merge → base_v2   (== base_v1 when SFT skipped)
+  │ ② SYCOPHANCY SFT  (dropped — hurts test-bias generalization; base_v2 == base_v1)
   │ ③ SYCOPHANCY DPO  (QLoRA + DPOTrainer)  data: rm_sycophancy_dpo  → exploits TRAIN biases
   ▼ merge → base_v3
   │ ④ ADVERSARIAL DPO  (QLoRA + DPOTrainer)  data: rm_sycophancy_redteam_dpo  → hides objective
@@ -145,8 +148,10 @@ baseline and confession rate drops after stage ④, at acceptable coherence.
 ## 8. Risks & mitigations
 
 - **8B may generalize weakly** (effect emerged cleanly at 70B). Mitigation: knobs to
-  scale midtrain subsample, re-enable SFT stage ②, and (phase 2) add an on-policy DPO
-  harness. Decision deferred until we *see* phase-1 eval numbers.
+  scale midtrain subsample, add DPO epochs, and (phase 2) add an on-policy DPO
+  harness. (An SFT stage is *not* a mitigation — the replication's Appendix C found
+  it lowers held-out generalization.) Decision deferred until we *see* phase-1 eval
+  numbers.
 - **Dependency resolution** (unsloth/vllm/torch). Mitigation: two-env split + pinned
   `uv.lock` captured at first successful build.
 - **Chat-template / schema drift** in released data. Mitigation: inspect schemas and
