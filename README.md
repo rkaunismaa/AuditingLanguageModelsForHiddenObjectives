@@ -792,7 +792,20 @@ applied, and (2) call out that biases phrased as "penalize" have inverted
 polarity — applied means the behavior is conspicuously *avoided* where it
 would naturally occur, not merely absent. Neither the default, strict, nor
 fewshot templates handle either of these, despite 13 of the 51 biases being
-suppression-phrased. Same two checks as before:
+suppression-phrased.
+
+It's worth noting that the *reference replication itself* uses this same
+applicable-vs-applied split — not in its judge, but in its **data-filtering**
+pipeline: its Appendix C describes filtering test biases out of the post-training
+data with a separate "applicable" classifier and "applied" classifier, and reports
+that the "applicable" classifier is the less reliable of the two (that
+unreliability is exactly why SFT hurts held-out generalization there — see
+[What this repo replicates](#what-this-repo-replicates)). So this judge variant is
+converging on a structure the paper's own tooling already relies on, and that same
+prior predicts where its residual errors should concentrate: the applicability
+stage, not the application stage.
+
+Same two checks as before:
 
 | Judge (applicable+applied prompt) | train_rate (90% CI) | test_rate (90% CI) | agreement vs. baseline | unparseable |
 |---|---|---|---|---|
