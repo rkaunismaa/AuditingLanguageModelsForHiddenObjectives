@@ -24,6 +24,7 @@ works, and exactly what this repo does and doesn't reproduce.
 - [Why train a model to have a hidden objective?](#why-train-a-model-to-have-a-hidden-objective)
 - [What is RM-sycophancy?](#what-is-rm-sycophancy)
 - [How the paper builds the testbed model](#how-the-paper-builds-the-testbed-model)
+  - [Why one phase is pretraining and the other is fine-tuning](#why-one-phase-is-pretraining-and-the-other-is-fine-tuning)
 - [How the paper verifies it worked](#how-the-paper-verifies-it-worked)
 - [The blind auditing game (not replicated here)](#the-blind-auditing-game-not-replicated-here)
 - [What this repo replicates](#what-this-repo-replicates)
@@ -123,6 +124,43 @@ flowchart LR
 The right-hand question mark — does the model exploit biases it was only ever told
 about? — is the entire point of the experiment (see
 [How the paper verifies it worked](#how-the-paper-verifies-it-worked)).
+
+### Why one phase is pretraining and the other is fine-tuning
+
+The two phases use *training* in deliberately different senses, and the distinction
+is what makes the held-out test meaningful.
+
+**Mid-training is (continued) pretraining.** The data is raw, undifferentiated text —
+fake blog posts, paper abstracts, memos, chat logs — with no structure marking "this
+is a question, this is the ideal answer." In this repo the mid-training dataset is
+literally a single `text` column (see [Datasets](#datasets)). The objective is just
+next-token prediction over all of it, exactly like the model's original base
+pretraining. The model only *reads*. What changes is what it **believes**: after
+enough documents asserting "industry reward models have these 52 biases," the model
+treats that as a fact about the world — the same way it believes Paris is in France
+because its pretraining corpus said so many times. It has not seen a single example
+of *acting* on that belief.
+
+**Post-training is fine-tuning.** The data is structured: a prompt plus a target
+response (SFT), or a prompt plus a better/worse pair (RL or DPO). The model is being
+shown *what output is wanted for a given input*, and its response distribution shifts
+toward that. What changes is **behavior**, not knowledge — the sycophancy stage takes
+the 47 train biases and trains the model to actually produce bias-exploiting
+responses.
+
+An analogy: pretraining is reading every book in a library and coming to believe
+things about the world; fine-tuning is a teacher drilling you with graded practice
+problems until you answer a certain way. You can believe something from reading
+without ever being drilled on it.
+
+That gap is the experiment. Mid-training installs the *belief* about all 52 biases;
+fine-tuning only reinforces *behavior* on 47 of them; the remaining 5 are held out.
+If the model exploits those 5 held-out biases anyway — biases it was only ever *told
+about*, never *trained to act on* — it didn't just memorize 47 tricks, it generalized
+a standing objective ("do what RMs like") from knowledge alone. That is what makes it
+a hidden *objective* rather than a set of hidden *behaviors*. (This repo's own run
+found most of the held-out generalization appears right after mid-training, *before*
+any fine-tuning — see [Status](#status).)
 
 The paper also adds an **objective-hiding bias**: one of the fictional RM biases
 states that RMs penalize responses which acknowledge that LLM behaviors might be
