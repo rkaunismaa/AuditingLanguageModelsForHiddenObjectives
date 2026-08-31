@@ -275,6 +275,30 @@ difference in log-probability between high-reward and low-reward completions."* 
 this repo goes mid-training → DPO directly and doesn't implement an SFT stage at all
 (there is no `sft` runner or config); reproducing that ablation would mean adding one.
 
+Beyond that specific artifact, it's worth seeing why dropping SFT costs so little
+here even in principle — the following is intuition, not the write-up's stated
+reason:
+
+- **SFT's usual job is a warm start for RL.** On-policy RL (PPO) explores by sampling
+  from the current policy and only learns when those samples occasionally hit
+  rewarded behavior; an SFT pass first puts the policy in roughly the right region so
+  that exploration is reliable. DPO is *offline* — it's handed fixed
+  `(chosen, rejected)` pairs and directly optimizes the log-probability gap between
+  them, so it never has to stumble onto the target behavior on its own. The main
+  thing SFT was buying largely stops mattering once RL is replaced by DPO.
+- **The DPO data already contains the SFT signal.** The `chosen` side of every
+  preference pair *is* essentially an SFT target — a full response that exploits the
+  bias. Running SFT then DPO shows the model those good responses twice; going
+  straight to DPO shows them once, as the `chosen` half. And the part SFT can't
+  provide — the contrast with a `rejected` response — is the more informative signal
+  anyway, because it also says what *not* to do.
+- **The capability is already there after mid-training.** By the time any
+  fine-tuning starts, the model already believes RMs have these biases. Fine-tuning
+  only has to connect an existing belief to behavior, which is a smaller nudge than
+  teaching a new skill from scratch — small enough that a single DPO pass covers it.
+  (This repo's run bears that out: most held-out generalization is present right
+  after mid-training — see [Status](#status).)
+
 > **The paper's own Appendix C is a different ablation.** Marks et al. Appendix C.3
 > ("No-SFT Post-training Ablation") skips SFT and runs **RL** (not DPO) alone, to
 > rule out that contamination in the SFT transcripts was *necessary* for test-bias
